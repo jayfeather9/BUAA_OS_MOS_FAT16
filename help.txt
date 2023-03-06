@@ -1,0 +1,12 @@
+makefile help
+$@ = target object
+$< = first precondition
+$? = all preconditions that is newer than target
+$^ = all preconditions
+$* = "%" part
+$(@D) = target directory
+$(@F) = target file name
+$(<D) = $< directory
+$(<F) = $< file name
+// if no directory then directory will be "."
+
