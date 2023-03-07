@@ -29,7 +29,6 @@ void vprintfmt(fmt_callback_t out, void *data, const char *fmt, va_list ap) {
 		/* Exercise 1.4: Your code here. (3/8) */
 
 		if (*fmt == '\0') {
-			fmt--;
 			break;
 		}
 
