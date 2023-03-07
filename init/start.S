@@ -12,5 +12,9 @@ EXPORT(_start)
 	/* set up the kernel stack */
 	/* Exercise 1.3: Your code here. (1/2) */
 
+	li      sp, 0x80400000
+
 	/* jump to mips_init */
 	/* Exercise 1.3: Your code here. (2/2) */
+
+	j       mips_init
