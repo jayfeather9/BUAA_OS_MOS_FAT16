@@ -183,6 +183,7 @@ void page_free(struct Page *pp) {
  *   whether this function succeeds or not.
  */
 static int pgdir_walk(Pde *pgdir, u_long va, int create, Pte **ppte) {
+	// printk("called pgdir_walk\n");
 	Pde *pgdir_entryp;
 	struct Page *pp;
 
@@ -199,7 +200,11 @@ static int pgdir_walk(Pde *pgdir, u_long va, int create, Pte **ppte) {
 
 	if (!(*pgdir_entryp & PTE_V) && create){
 		int alloc_result = page_alloc(&pp);
-		if (alloc_result != 0) return alloc_result;
+		if (alloc_result != 0) {
+			*ppte = NULL;
+			// printk("bad alloc!\n");
+			return alloc_result;
+		}
 		*pgdir_entryp = page2pa(pp) | PTE_D | PTE_V;
 		pp->pp_ref = 1;
 	}
@@ -207,6 +212,7 @@ static int pgdir_walk(Pde *pgdir, u_long va, int create, Pte **ppte) {
 		pp = pa2page(*pgdir_entryp);
 	}
 	else {
+		// printk("no create && no valid page!\n");
 		*ppte = NULL;
 		return 0;
 	}
@@ -214,7 +220,9 @@ static int pgdir_walk(Pde *pgdir, u_long va, int create, Pte **ppte) {
 	/* Step 3: Assign the kernel virtual address of the page table entry to '*ppte'. */
 	/* Exercise 2.6: Your code here. (3/3) */
 
-	*ppte = page2kva(pp) + PTX(va);
+	// this (Pte *) is very important since PTX(va) is the num of pages in PT
+	*ppte = (Pte *)page2kva(pp) + PTX(va);
+	// printk("good walk! *ppte=%u\n", *ppte);
 
 	return 0;
 }
@@ -232,20 +240,26 @@ static int pgdir_walk(Pde *pgdir, u_long va, int create, Pte **ppte) {
  *   The `pp_ref` should be incremented if the insertion succeeds.
  */
 int page_insert(Pde *pgdir, u_int asid, struct Page *pp, u_long va, u_int perm) {
+	// printk("called page_insert\n");
 	Pte *pte;
 
 	/* Step 1: Get corresponding page table entry. */
 	pgdir_walk(pgdir, va, 0, &pte);
+	// printk("back from walk pte = %u\n", pte);
 
 	if (pte && (*pte & PTE_V)) {
 		if (pa2page(*pte) != pp) {
+			// printk("branch A");
 			page_remove(pgdir, asid, va);
 		} else {
+			// printk("branch B");
 			tlb_invalidate(asid, va);
 			*pte = page2pa(pp) | perm | PTE_V;
 			return 0;
 		}
 	}
+
+	// printk("step 2");
 
 	/* Step 2: Flush TLB with 'tlb_invalidate'. */
 	/* Exercise 2.7: Your code here. (1/3) */
