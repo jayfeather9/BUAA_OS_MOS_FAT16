@@ -147,6 +147,7 @@ int envid2env(u_int envid, struct Env **penv, int checkperm) {
  *   You may use these macro definitions below: 'LIST_INIT', 'TAILQ_INIT', 'LIST_INSERT_HEAD'
  */
 void env_init(void) {
+	// printk("Entering env_init\n");
 	int i;
 	/* Step 1: Initialize 'env_free_list' with 'LIST_INIT' and 'env_sched_list' with
 	 * 'TAILQ_INIT'. */
@@ -163,7 +164,7 @@ void env_init(void) {
 
 	for (int i = NENV - 1; i >= 0; i--) {
 		envs[i].env_status = ENV_FREE;
-		LIST_INSERT_HEAD(&env_free_list, &envs[i], env_link);
+		LIST_INSERT_HEAD(&env_free_list, envs + i, env_link);
 	}
 
 	/*
@@ -183,12 +184,15 @@ void env_init(void) {
 		    PTE_G);
 	map_segment(base_pgdir, 0, PADDR(envs), UENVS, ROUND(NENV * sizeof(struct Env), BY2PG),
 		    PTE_G);
+
+	// printk("Finished env_init\n");
 }
 
 /* Overview:
  *   Initialize the user address space for 'e'.
  */
 static int env_setup_vm(struct Env *e) {
+	// printk("Entering env_setup_vm\n");
 	/* Step 1:
 	 *   Allocate a page for the page directory with 'page_alloc'.
 	 *   Increase its 'pp_ref' and assign its kernel address to 'e->env_pgdir'.
@@ -214,6 +218,8 @@ static int env_setup_vm(struct Env *e) {
 	/* Step 3: Map its own page table at 'UVPT' with readonly permission.
 	 * As a result, user programs can read its page table through 'UVPT' */
 	e->env_pgdir[PDX(UVPT)] = PADDR(e->env_pgdir) | PTE_V;
+
+	
 	return 0;
 }
 
@@ -237,12 +243,15 @@ static int env_setup_vm(struct Env *e) {
  *     'env_user_tlb_mod_entry', 'env_runs'
  */
 int env_alloc(struct Env **new, u_int parent_id) {
+	// printk("Entering env_alloc\n");
 	int r;
 	struct Env *e;
 
 	/* Step 1: Get a free Env from 'env_free_list' */
 	/* Exercise 3.4: Your code here. (1/4) */
 
+	if (LIST_EMPTY(&env_free_list)) return -E_NO_FREE_ENV; // important return!! without this => BUG !!!
+	
 	e = LIST_FIRST(&env_free_list);
 
 	/* Step 2: Call a 'env_setup_vm' to initialize the user address space for this new Env. */
@@ -278,6 +287,7 @@ int env_alloc(struct Env **new, u_int parent_id) {
 	LIST_REMOVE(e, env_link);
 
 	*new = e;
+	// printk("Finished env_alloc\n");
 	return 0;
 }
 
