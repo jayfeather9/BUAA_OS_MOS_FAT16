@@ -25,14 +25,17 @@ struct Page {
 extern struct Page *pages;
 extern struct Page_list page_free_list;
 
+// transfer a page pointer to page index
 static inline u_long page2ppn(struct Page *pp) {
 	return pp - pages;
 }
 
+// transfer a page pointer to physical address
 static inline u_long page2pa(struct Page *pp) {
 	return page2ppn(pp) << PGSHIFT;
 }
 
+// transfer a physical address to page pointer
 static inline struct Page *pa2page(u_long pa) {
 	if (PPN(pa) >= npage) {
 		panic("pa2page called with invalid pa: %x", pa);
@@ -40,6 +43,8 @@ static inline struct Page *pa2page(u_long pa) {
 	return &pages[PPN(pa)];
 }
 
+// transfer a page pointer to kernel address which is a
+// virtual address that can be used as C address
 static inline u_long page2kva(struct Page *pp) {
 	return KADDR(page2pa(pp));
 }
