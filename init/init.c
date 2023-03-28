@@ -46,7 +46,9 @@ void mips_init() {
 
 	// lab3:
 	// kclock_init();
+	// printk("Finished kclock_init\n");
 	// enable_irq();
+	// printk("Finished enable_irq\n");
 	while (1) {
 	}
 }

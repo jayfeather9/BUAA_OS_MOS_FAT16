@@ -2,6 +2,7 @@ void load_icode_check(void);
 
 void mips_init() {
 	printk("init.c:\tmips_init() is called\n");
+	printk("here is lab3_2\n");
 	mips_detect_memory();
 	mips_vm_init();
 	page_init();
