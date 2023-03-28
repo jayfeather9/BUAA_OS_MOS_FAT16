@@ -18,5 +18,9 @@ LEAF(kclock_init)
 	 */
 	/* Exercise 3.11: Your code here. */
 
+	li		t1, DEV_RTC_ADDRESS
+	ori		t1, DEV_RTC_HZ
+	sw		t0, KSEG1(t1)
+
 	jr      ra
 END(kclock_init)
