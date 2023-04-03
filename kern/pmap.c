@@ -573,9 +573,26 @@ struct Page *swap_alloc(Pde *pgdir, u_int asid) {
 			/* Your Code Here (1/3) */
 			u_char *da = disk_alloc();
 			struct Page *p = pa2page(0x3900000);
-			
-		}
+			Pde *pgdir_e;	
+	for (int i = 0; i < 1024; i++) {
+		pgdir_e = pgdir + i;
+		if (!*pgdir_e) continue;
+		if (!(*pgdir_e & PTE_V)) continue;
 
+		pte = (Pte *)page2kva(pa2page(*pgdir_e));
+		for (int j = 0; j < 1024; j++, pte++) {
+			if (!*pte) continue;
+			if (!(*pte & PTE_V)) continue;
+			if (pa2page(*pte) != p) continue;
+			*pte = (page2pa(p) & (~PTE_V)) | PTE_SWP;
+			tlb_invalidate(asid, page2kva(p));
+			goto DONE;
+		}
+	}
+DONE:;
+		 memcpy(da, page2kva(p), BY2PG);
+		 LIST_INSERT_HEAD(&page_free_swapable_list, p, pp_link);
+		}
 			// Step 2: Get a free page and clear it
 			struct Page *pp = LIST_FIRST(&page_free_swapable_list);
 				LIST_REMOVE(pp, pp_link);
@@ -587,6 +604,7 @@ struct Page *swap_alloc(Pde *pgdir, u_int asid) {
 // Interfaces for 'Active Swap In'
 static int is_swapped(Pde *pgdir, u_long va) {
 		/* Your Code Here (2/3) */
+Pte *pte;
 }
 
 static void swap(Pde *pgdir, u_int asid, u_long va) {
