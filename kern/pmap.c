@@ -346,7 +346,7 @@ void page_remove(Pde *pgdir, u_int asid, u_long va) {
 u_int page_perm_stat(Pde *pgdir, struct Page *pp, u_int perm_mask) {
 	// printk("va = %u PDX = %u PTX = %u\n", page2kva(pp), PDX(page2kva(pp)),
 	//		PTX(page2kva(pp)));
-	Pte *pte, *pte_e;
+	Pte *pte;
 	Pde *pgdir_e;
 	u_int ans = 0;
 	for (int i = 0; i < 1024; i++) {
@@ -356,15 +356,15 @@ u_int page_perm_stat(Pde *pgdir, struct Page *pp, u_int perm_mask) {
 		pte = (Pte *)page2kva(pa2page(*pgdir_e));
 		for (int j = 0; j < 1024; j++, pte++) {
 			if (!(*pte & PTE_V)) continue;
-			printk("found one valid pte i = %d  j = %d\n", i, j);
+			//printk("found one valid pte i = %d  j = %d\n", i, j);
 			if (!(*pte & perm_mask)) continue;
 			// printk("perm mask good pte_e = %u, pte_addr = %u page2pa = %u\n", pte_e,
 			// 		PTE_ADDR(*pte_e), page2pa(pp));
-			printk("passed prev test\n");
+			//printk("passed prev test\n");
 			if (pa2page(*pte) != pp) continue;
 			// if (((*pte_e >> 12) & 0xFFFFF) != page2ppn(pp)) continue;
 			// if (PTE_ADDR(*pte_e) != page2pa(pp)) continue;
-			printk("GOOD!\n");
+			//printk("GOOD!\n");
 			ans++;
 		}
 	}

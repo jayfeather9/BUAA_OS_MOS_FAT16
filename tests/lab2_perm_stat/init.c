@@ -17,10 +17,11 @@ void test_perm_stat() {
 	assert(page_alloc(&pp2) == 0);
 	assert(page_alloc(&pp3) == 0);
 	assert(page_alloc(&pp4) == 0);
-	assert(page_insert(pgdir, 0, pp, va[0], perm[0]) == 0);
-	assert(page_insert(pgdir, 0, pp2, va[1], perm[1]) == 0);
-	assert(page_insert(pgdir, 0, pp3, va[2], perm[2]) == 0);
-	assert(page_insert(pgdir, 0, pp, va[3], perm[3]) == 0);
+	for (unsigned int nnn = 0; nnn < 5; nnn++)
+	assert(page_insert(pgdir, 0, pp, 0xf0000000 + (nnn - 3)*BY2PG, perm[0]) == 0);
+	//assert(page_insert(pgdir, 0, pp2, va[1], perm[1]) == 0);
+	//assert(page_insert(pgdir, 0, pp3, va[2], perm[2]) == 0);
+	//assert(page_insert(pgdir, 0, pp, va[3], perm[3]) == 0);
 	int r = page_perm_stat(pgdir, pp, PTE_D);
 	printk("r = %d\n", r);
 	assert(r == 1);
