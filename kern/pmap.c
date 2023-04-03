@@ -355,9 +355,9 @@ u_int page_perm_stat(Pde *pgdir, struct Page *pp, u_int perm_mask) {
 		// printk("good page dir i = %d\n", i);
 		pte = (Pte *)page2kva(pa2page(*pgdir_e));
 		for (int j = 0; j < 1024; j++, pte++) {
-			if (!(*pte & PTE_V)) continue;
+			// if (!(*pte & PTE_V)) continue;
 			//printk("found one valid pte i = %d  j = %d\n", i, j);
-			if (!(*pte & perm_mask)) continue;
+			if (!(*pte & (perm_mask | PTE_V))) continue;
 			// printk("perm mask good pte_e = %u, pte_addr = %u page2pa = %u\n", pte_e,
 			// 		PTE_ADDR(*pte_e), page2pa(pp));
 			//printk("passed prev test\n");
