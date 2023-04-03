@@ -573,7 +573,7 @@ struct Page *swap_alloc(Pde *pgdir, u_int asid) {
 			/* Your Code Here (1/3) */
 			u_char *da = disk_alloc();
 			struct Page *p = pa2page(0x3900000);
-			Pde *pgdir_e;	
+			Pde *pgdir_e; Pte *pte;	
 	for (int i = 0; i < 1024; i++) {
 		pgdir_e = pgdir + i;
 		if (!*pgdir_e) continue;
@@ -605,10 +605,20 @@ DONE:;
 static int is_swapped(Pde *pgdir, u_long va) {
 		/* Your Code Here (2/3) */
 Pte *pte;
+pgdir_walk(pgdir, va, 0, &pte);
+if (!pte) return 0;
+if (*pte & PTE_V) {
+	if (*pte & PTE_SWP) {
+		return 1;
+	}
+	return 0;
+}
+else return 0;
 }
 
 static void swap(Pde *pgdir, u_int asid, u_long va) {
 		/* Your Code Here (3/3) */
+
 }
 
 Pte swap_lookup(Pde *pgdir, u_int asid, u_long va) {
