@@ -122,6 +122,8 @@ extern u_long npage;
 typedef u_long Pde;
 typedef u_long Pte;
 
+// va to pa
+// this macro needs kva must be in KSEG0 (that is, larger than ULIM)
 #define PADDR(kva)                                                                                 \
 	({                                                                                         \
 		u_long a = (u_long)(kva);                                                          \
