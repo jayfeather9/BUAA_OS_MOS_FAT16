@@ -352,7 +352,6 @@ u_int page_perm_stat(Pde *pgdir, struct Page *pp, u_int perm_mask) {
 	for (int i = 0; i < 1024; i++) {
 		pgdir_e = pgdir + i;
 		if (!(*pgdir_e & PTE_V)) continue;
-		if (!(*pgdir_e & perm_mask)) continue;
 		// printk("good page dir i = %d\n", i);
 		pte = (Pte *)page2kva(pa2page(*pgdir_e));
 		for (int j = 0; j < 1024; j++) {
