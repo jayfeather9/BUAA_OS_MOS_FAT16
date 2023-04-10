@@ -32,7 +32,7 @@ void mips_init() {
 	printk("Finished create env 2\n");
 
 	// lab4:
-	// ENV_CREATE(user_tltest);
+	ENV_CREATE(user_tltest);
 	// ENV_CREATE(user_fktest);
 	// ENV_CREATE(user_pingpong);
 

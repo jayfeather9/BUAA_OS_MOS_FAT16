@@ -60,6 +60,8 @@ void __attribute__((noreturn)) sys_yield(void) {
 	// Hint: Just use 'schedule' with 'yield' set.
 	/* Exercise 4.7: Your code here. */
 
+	schedule(1);
+
 }
 
 /* Overview:
@@ -140,12 +142,20 @@ int sys_mem_alloc(u_int envid, u_int va, u_int perm) {
 	/* Step 1: Check if 'va' is a legal user virtual address using 'is_illegal_va'. */
 	/* Exercise 4.4: Your code here. (1/3) */
 
+	if (is_illegal_va(va)) {
+		return -E_INVAL;
+	}
+
 	/* Step 2: Convert the envid to its corresponding 'struct Env *' using 'envid2env'. */
 	/* Hint: **Always** validate the permission in syscalls! */
 	/* Exercise 4.4: Your code here. (2/3) */
 
+	try(envid2env(envid, &env, 1));
+
 	/* Step 3: Allocate a physical page using 'page_alloc'. */
 	/* Exercise 4.4: Your code here. (3/3) */
+
+	try(page_alloc(&pp));
 
 	/* Step 4: Map the allocated page at 'va' with permission 'perm' using 'page_insert'. */
 	return page_insert(env->env_pgdir, env->env_asid, pp, va, perm);
@@ -174,15 +184,29 @@ int sys_mem_map(u_int srcid, u_int srcva, u_int dstid, u_int dstva, u_int perm) 
 	 * 'is_illegal_va'. */
 	/* Exercise 4.5: Your code here. (1/4) */
 
+	if (is_illegal_va(srcva) || is_illegal_va(dstva)) {
+		return -E_INVAL;
+	}
+
 	/* Step 2: Convert the 'srcid' to its corresponding 'struct Env *' using 'envid2env'. */
 	/* Exercise 4.5: Your code here. (2/4) */
+
+	try(envid2env(srcid, &srcenv, 1));
 
 	/* Step 3: Convert the 'dstid' to its corresponding 'struct Env *' using 'envid2env'. */
 	/* Exercise 4.5: Your code here. (3/4) */
 
+	try(envid2env(dstid, &dstenv, 1));
+
 	/* Step 4: Find the physical page mapped at 'srcva' in the address space of 'srcid'. */
 	/* Return -E_INVAL if 'srcva' is not mapped. */
 	/* Exercise 4.5: Your code here. (4/4) */
+
+	Pte *srcpte;
+	pp = page_lookup(srcenv->env_pgdir, srcva, &srcpte);
+	if (pp == NULL) {
+		return -E_INVAL;
+	}
 
 	/* Step 5: Map the physical page at 'dstva' in the address space of 'dstid'. */
 	return page_insert(dstenv->env_pgdir, dstenv->env_asid, pp, dstva, perm);
@@ -204,8 +228,14 @@ int sys_mem_unmap(u_int envid, u_int va) {
 	/* Step 1: Check if 'va' is a legal user virtual address using 'is_illegal_va'. */
 	/* Exercise 4.6: Your code here. (1/2) */
 
+	if (is_illegal_va(va)) {
+		return -E_INVAL;
+	}
+
 	/* Step 2: Convert the envid to its corresponding 'struct Env *' using 'envid2env'. */
 	/* Exercise 4.6: Your code here. (2/2) */
+
+	try(envid2env(envid, &e, 1));
 
 	/* Step 3: Unmap the physical page at 'va' in the address space of 'envid'. */
 	page_remove(e->env_pgdir, e->env_asid, va);
@@ -327,12 +357,19 @@ int sys_ipc_recv(u_int dstva) {
 	/* Step 2: Set 'curenv->env_ipc_recving' to 1. */
 	/* Exercise 4.8: Your code here. (1/8) */
 
+	curenv->env_ipc_recving = 1;
+
 	/* Step 3: Set the value of 'curenv->env_ipc_dstva'. */
 	/* Exercise 4.8: Your code here. (2/8) */
+
+	curenv->env_ipc_dstva = dstva;
 
 	/* Step 4: Set the status of 'curenv' to 'ENV_NOT_RUNNABLE' and remove it from
 	 * 'env_sched_list'. */
 	/* Exercise 4.8: Your code here. (3/8) */
+
+	curenv->env_status = ENV_NOT_RUNNABLE;
+	TAILQ_REMOVE(&env_sched_list, curenv, env_sched_link);
 
 	/* Step 5: Give up the CPU and block until a message is received. */
 	((struct Trapframe *)KSTACKTOP - 1)->regs[2] = 0;
@@ -362,13 +399,23 @@ int sys_ipc_try_send(u_int envid, u_int value, u_int srcva, u_int perm) {
 	/* Step 1: Check if 'srcva' is either zero or a legal address. */
 	/* Exercise 4.8: Your code here. (4/8) */
 
+	if (srcva && is_illegal_va(srcva)) {
+		return -E_INVAL;
+	}
+
 	/* Step 2: Convert 'envid' to 'struct Env *e'. */
 	/* This is the only syscall where the 'envid2env' should be used with 'checkperm' UNSET,
 	 * because the target env is not restricted to 'curenv''s children. */
 	/* Exercise 4.8: Your code here. (5/8) */
 
+	try(envid2env(envid, &e, 0));
+
 	/* Step 3: Check if the target is waiting for a message. */
 	/* Exercise 4.8: Your code here. (6/8) */
+
+	if (!e->env_ipc_recving) {
+		return -E_IPC_NOT_RECV;
+	}
 
 	/* Step 4: Set the target's ipc fields. */
 	e->env_ipc_value = value;
@@ -380,12 +427,16 @@ int sys_ipc_try_send(u_int envid, u_int value, u_int srcva, u_int perm) {
 	 * 'env_sched_list'. */
 	/* Exercise 4.8: Your code here. (7/8) */
 
+	e->env_status = ENV_RUNNABLE;
+	TAILQ_INSERT_TAIL(&env_sched_list, e, env_sched_link);
+
 	/* Step 6: If 'srcva' is not zero, map the page at 'srcva' in 'curenv' to 'e->env_ipc_dstva'
 	 * in 'e'. */
 	/* Return -E_INVAL if 'srcva' is not zero and not mapped in 'curenv'. */
 	if (srcva != 0) {
 		/* Exercise 4.8: Your code here. (8/8) */
-
+		try(sys_mem_map(curenv->env_id, srcva, e->env_id,
+					e->env_ipc_dstva, perm));
 	}
 	return 0;
 }
@@ -489,8 +540,12 @@ void do_syscall(struct Trapframe *tf) {
 	/* Step 1: Add the EPC in 'tf' by a word (size of an instruction). */
 	/* Exercise 4.2: Your code here. (1/4) */
 
+	tf->cp0_epc += 4;
+
 	/* Step 2: Use 'sysno' to get 'func' from 'syscall_table'. */
 	/* Exercise 4.2: Your code here. (2/4) */
+
+	func = syscall_table[sysno];
 
 	/* Step 3: First 3 args are stored at $a1, $a2, $a3. */
 	u_int arg1 = tf->regs[5];
@@ -501,8 +556,16 @@ void do_syscall(struct Trapframe *tf) {
 	u_int arg4, arg5;
 	/* Exercise 4.2: Your code here. (3/4) */
 
+	arg4 = *(u_int *)(tf->regs[29] + 16);
+	arg5 = *(u_int *)(tf->regs[29] + 20);
+
+	// printk("called syscall (%d %d %d %d %d %d)\n", sysno, arg1, arg2,
+	// 		arg3, arg4, arg5);
+
 	/* Step 5: Invoke 'func' with retrieved arguments and store its return value to $v0 in 'tf'.
 	 */
 	/* Exercise 4.2: Your code here. (4/4) */
+
+	tf->regs[2] = func(arg1, arg2, arg3, arg4, arg5);
 
 }

@@ -8,6 +8,9 @@
 
 #define LOG2NENV 10
 #define NENV (1 << LOG2NENV)
+
+// transform envid to env index
+// e = &envs[ENVX(envid)]
 #define ENVX(envid) ((envid) & (NENV - 1))
 
 // Values of env_status in struct Env
