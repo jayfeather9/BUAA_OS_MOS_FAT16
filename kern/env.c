@@ -374,7 +374,7 @@ static void load_icode(struct Env *e, const void *binary, size_t size) {
 	/* Step 3: Set 'e->env_tf.cp0_epc' to 'ehdr->e_entry'. */
 	/* Exercise 3.6: Your code here. */
 
-	printk("ehdr->e_entry %u\n", ehdr->e_entry);
+	// printk("ehdr->e_entry %u\n", ehdr->e_entry);
 	e->env_tf.cp0_epc = ehdr->e_entry;
 
 }
