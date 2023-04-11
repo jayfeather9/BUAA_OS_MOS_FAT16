@@ -99,8 +99,13 @@ int sys_set_tlb_mod_entry(u_int envid, u_int func) {
 	/* Step 1: Convert the envid to its corresponding 'struct Env *' using 'envid2env'. */
 	/* Exercise 4.12: Your code here. (1/2) */
 
+	try(envid2env(envid, &env, 1));
+
 	/* Step 2: Set its 'env_user_tlb_mod_entry' to 'func'. */
 	/* Exercise 4.12: Your code here. (2/2) */
+
+	// printk("set_tlb_mod_entry envid %u func %u.\n", envid, func);
+	env->env_user_tlb_mod_entry = func;
 
 	return 0;
 }
@@ -176,6 +181,9 @@ int sys_mem_alloc(u_int envid, u_int va, u_int perm) {
  *   'envid2env', 'page_lookup', 'page_insert'
  */
 int sys_mem_map(u_int srcid, u_int srcva, u_int dstid, u_int dstva, u_int perm) {
+	// printk("sys_mem_map called srcid %u srcva %u dstid %u dstva %u perm %u.\n",
+	// 		srcid, srcva, dstid, dstva, perm);
+
 	struct Env *srcenv;
 	struct Env *dstenv;
 	struct Page *pp;
@@ -185,6 +193,12 @@ int sys_mem_map(u_int srcid, u_int srcva, u_int dstid, u_int dstva, u_int perm) 
 	/* Exercise 4.5: Your code here. (1/4) */
 
 	if (is_illegal_va(srcva) || is_illegal_va(dstva)) {
+		if (is_illegal_va(srcva)) { 
+			printk("in sys_mem_map, bad source va %u.\n", srcva);
+		}
+		else if (is_illegal_va(dstva)) {
+			printk("in sys_mem_map, bad dest va %u.\n", dstva);
+		}
 		return -E_INVAL;
 	}
 
@@ -205,6 +219,7 @@ int sys_mem_map(u_int srcid, u_int srcva, u_int dstid, u_int dstva, u_int perm) 
 	Pte *srcpte;
 	pp = page_lookup(srcenv->env_pgdir, srcva, &srcpte);
 	if (pp == NULL) {
+		printk("in sys_mem_map, source va is not mapped, pp is NULL.\n");
 		return -E_INVAL;
 	}
 
@@ -262,14 +277,24 @@ int sys_exofork(void) {
 	/* Step 1: Allocate a new env using 'env_alloc'. */
 	/* Exercise 4.9: Your code here. (1/4) */
 
+	try(env_alloc(&e, curenv->env_id));
+
 	/* Step 2: Copy the current Trapframe below 'KSTACKTOP' to the new env's 'env_tf'. */
 	/* Exercise 4.9: Your code here. (2/4) */
+
+	e->env_tf = *((struct Trapframe *)KSTACKTOP - 1);
+	// printk("!!!epc %u\n", e->env_tf.cp0_epc);
 
 	/* Step 3: Set the new env's 'env_tf.regs[2]' to 0 to indicate the return value in child. */
 	/* Exercise 4.9: Your code here. (3/4) */
 
+	e->env_tf.regs[2] = 0; // $v0 = 0, return value of fork() = 0
+
 	/* Step 4: Set up the new env's 'env_status' and 'env_pri'.  */
 	/* Exercise 4.9: Your code here. (4/4) */
+
+	e->env_status = ENV_NOT_RUNNABLE;
+	e->env_pri = curenv->env_pri;
 
 	return e->env_id;
 }
@@ -292,11 +317,24 @@ int sys_set_env_status(u_int envid, u_int status) {
 	/* Step 1: Check if 'status' is valid. */
 	/* Exercise 4.14: Your code here. (1/3) */
 
+	if (status != ENV_RUNNABLE && status != ENV_NOT_RUNNABLE) {
+		return -E_INVAL;
+	}
+
 	/* Step 2: Convert the envid to its corresponding 'struct Env *' using 'envid2env'. */
 	/* Exercise 4.14: Your code here. (2/3) */
 
+	try(envid2env(envid, &env, 1));
+
 	/* Step 4: Update 'env_sched_list' if the 'env_status' of 'env' is being changed. */
 	/* Exercise 4.14: Your code here. (3/3) */
+
+	if (env->env_status == ENV_RUNNABLE && status == ENV_NOT_RUNNABLE) {
+		TAILQ_REMOVE(&env_sched_list, env, env_sched_link);
+	}
+	else if (env->env_status == ENV_NOT_RUNNABLE && status == ENV_RUNNABLE) {
+		TAILQ_INSERT_TAIL(&env_sched_list, env, env_sched_link);
+	}
 
 	/* Step 5: Set the 'env_status' of 'env'. */
 	env->env_status = status;
@@ -556,8 +594,9 @@ void do_syscall(struct Trapframe *tf) {
 	u_int arg4, arg5;
 	/* Exercise 4.2: Your code here. (3/4) */
 
-	arg4 = *(u_int *)(tf->regs[29] + 16);
-	arg5 = *(u_int *)(tf->regs[29] + 20);
+	arg4 = *(((u_int *)tf->regs[29]) + 4);
+	arg5 = *(((u_int *)tf->regs[29]) + 5);
+
 
 	// printk("called syscall (%d %d %d %d %d %d)\n", sysno, arg1, arg2,
 	// 		arg3, arg4, arg5);

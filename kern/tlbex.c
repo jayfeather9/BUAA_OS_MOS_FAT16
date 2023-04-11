@@ -1,27 +1,28 @@
 #include <env.h>
 #include <pmap.h>
+#include <printk.h>
 
 static void passive_alloc(u_int va, Pde *pgdir, u_int asid) {
 	struct Page *p = NULL;
 
 	if (va < UTEMP) {
-		panic("address too low");
+		panic("va = %u, address too low", va);
 	}
 
 	if (va >= USTACKTOP && va < USTACKTOP + BY2PG) {
-		panic("invalid memory");
+		panic("va = %u, invalid memory", va);
 	}
 
 	if (va >= UENVS && va < UPAGES) {
-		panic("envs zone");
+		panic("va = %u, envs zone", va);
 	}
 
 	if (va >= UPAGES && va < UVPT) {
-		panic("pages zone");
+		panic("va = %u, pages zone", va);
 	}
 
 	if (va >= ULIM) {
-		panic("kernel address");
+		panic("va = %u, kernel address", va);
 	}
 
 	panic_on(page_alloc(&p));
@@ -44,6 +45,9 @@ Pte _do_tlb_refill(u_long va, u_int asid) {
 	/* Exercise 2.9: Your code here. */
 
 	while (page_lookup(cur_pgdir, va, &pte) == NULL) {
+		// printk("calling passive_alloc va %u pgdir %u asid %u.\n", va, cur_pgdir,
+		// 		asid);
+		// print_tf(&curenv->env_tf);
 		passive_alloc(va, cur_pgdir, asid);
 	}
 
@@ -63,6 +67,8 @@ Pte _do_tlb_refill(u_long va, u_int asid) {
  *   The user entry should handle this TLB Mod exception and restore the context.
  */
 void do_tlb_mod(struct Trapframe *tf) {
+	// printk("calling do_tlb_mod\n");
+	// print_tf(tf);
 	struct Trapframe tmp_tf = *tf;
 
 	if (tf->regs[29] < USTACKTOP || tf->regs[29] >= UXSTACKTOP) {
@@ -76,6 +82,8 @@ void do_tlb_mod(struct Trapframe *tf) {
 		tf->regs[29] -= sizeof(tf->regs[4]);
 		// Hint: Set 'cp0_epc' in the context 'tf' to 'curenv->env_user_tlb_mod_entry'.
 		/* Exercise 4.11: Your code here. */
+
+		tf->cp0_epc = curenv->env_user_tlb_mod_entry;
 
 	} else {
 		panic("TLB Mod but no user handler registered");

@@ -374,6 +374,7 @@ static void load_icode(struct Env *e, const void *binary, size_t size) {
 	/* Step 3: Set 'e->env_tf.cp0_epc' to 'ehdr->e_entry'. */
 	/* Exercise 3.6: Your code here. */
 
+	printk("ehdr->e_entry %u\n", ehdr->e_entry);
 	e->env_tf.cp0_epc = ehdr->e_entry;
 
 }
@@ -514,8 +515,10 @@ void env_run(struct Env *e) {
 	 *   'curenv->env_tf' first.
 	 */
 	if (curenv) {
+		// printk("saved curenv.\n");
 		curenv->env_tf = *((struct Trapframe *)KSTACKTOP - 1);
 	}
+	// printk("e->env_id %d.\n", e->env_id);
 
 	/* Step 2: Change 'curenv' to 'e'. */
 	curenv = e;
@@ -536,6 +539,8 @@ void env_run(struct Env *e) {
 	 */
 	/* Exercise 3.8: Your code here. (2/2) */
 
+	// if (curenv->env_tf.cp0_epc == 0)
+	// 	print_tf(&curenv->env_tf);
 	env_pop_tf(&curenv->env_tf, curenv->env_asid);
 
 }
