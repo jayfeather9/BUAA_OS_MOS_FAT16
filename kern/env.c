@@ -80,7 +80,7 @@ static void map_segment(Pde *pgdir, u_int asid, u_long pa, u_long va, u_int size
 		/* Exercise 3.2: Your code here. */
 
 		struct Page *pp = pa2page(pa + i);
-		page_insert(pgdir, asid, pp, va + i, perm);
+		page_insert(pgdir, asid, pp, va + i, perm | PTE_V);
 
 	}
 }
