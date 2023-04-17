@@ -18,6 +18,8 @@ void schedule(int yield) {
 	static int count = 0; // remaining time slices of current env
 	struct Env *e = curenv;
 
+	static int user_time[5];
+
 	/* We always decrease the 'count' by 1.
 	 *
 	 * If 'yield' is set, or 'count' has been decreased to 0, or 'e' (previous 'curenv') is
@@ -36,7 +38,15 @@ void schedule(int yield) {
 	 */
 	/* Exercise 3.12: Your code here. */
 
-	
+	struct Env *avail_es[5];
+	for (int i = 0; i < 5; i++) avail_es[i] = NULL;
+	struct Env *ie;
+	TAILQ_FOREACH(ie, &env_sched_list, env_sched_link) {
+		int user = ie->env_user;
+		if (avail_es[user] == NULL) {
+			avail_es[user] = ie;
+		}
+	}
 
 	// four situations we pick up a new env
 	if (yield || (count <= 0) || (e == NULL) || (e->env_status != ENV_RUNNABLE)) {
@@ -46,12 +56,26 @@ void schedule(int yield) {
 			// if e is still runnable, insert it
 			if (e->env_status == ENV_RUNNABLE) {
 				TAILQ_INSERT_TAIL(&env_sched_list, e, env_sched_link);
+				user_time[e->env_user] += e->env_pri;
 			}
 		}
 		
 		// pick up a new env
 		if (TAILQ_EMPTY(&env_sched_list)) panic("no runnable envs");
-		e = TAILQ_FIRST(&env_sched_list);
+		// e = TAILQ_FIRST(&env_sched_list);
+
+		int min_user_time = 2100000000;
+		int min_user = -1;
+		for (int usr_id = 0; usr_id < 5; usr_id++) {
+			if (avail_es[usr_id] == NULL) continue;
+			if (user_time[usr_id] < min_user_time) {
+				min_user_time = user_time[usr_id];
+				min_user = usr_id;
+			}
+		}
+
+		if (min_user == -1) panic("cannot find min user");
+		e = avail_es[min_user];
 
 		// set count to priority
 		count = e->env_pri;
