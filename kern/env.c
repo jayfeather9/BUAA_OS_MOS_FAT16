@@ -80,7 +80,7 @@ static void map_segment(Pde *pgdir, u_int asid, u_long pa, u_long va, u_int size
 		/* Exercise 3.2: Your code here. */
 
 		struct Page *pp = pa2page(pa + i);
-		page_insert(pgdir, asid, pp, va + i, perm);
+		page_insert(pgdir, asid, pp, va + i, perm | PTE_V);
 
 	}
 }
@@ -122,6 +122,12 @@ int envid2env(u_int envid, struct Env **penv, int checkperm) {
 	 */
 	/* Exercise 4.3: Your code here. (1/2) */
 
+	if (envid == 0) {
+		*penv = curenv;
+		return 0;
+	}
+	e = &envs[ENVX(envid)];
+
 	if (e->env_status == ENV_FREE || e->env_id != envid) {
 		return -E_BAD_ENV;
 	}
@@ -133,6 +139,16 @@ int envid2env(u_int envid, struct Env **penv, int checkperm) {
 	 *   If violated, return '-E_BAD_ENV'.
 	 */
 	/* Exercise 4.3: Your code here. (2/2) */
+
+	// printk("cp %d e %u curenv %u xxx %u\n", checkperm, e, curenv,
+	// 		&envs[ENVX(e->env_parent_id)]);
+	// if (checkperm)
+	// 	printk("eid %u ceid %u\n", e->env_id, curenv->env_id);
+	if (checkperm && !(e == curenv ||
+			((&envs[ENVX(e->env_parent_id)]) == curenv &&
+			e->env_parent_id != 0))) {
+		return -E_BAD_ENV;
+	}
 
 	/* Step 3: Assign 'e' to '*penv'. */
 	*penv = e;
@@ -358,6 +374,7 @@ static void load_icode(struct Env *e, const void *binary, size_t size) {
 	/* Step 3: Set 'e->env_tf.cp0_epc' to 'ehdr->e_entry'. */
 	/* Exercise 3.6: Your code here. */
 
+	// printk("ehdr->e_entry %u\n", ehdr->e_entry);
 	e->env_tf.cp0_epc = ehdr->e_entry;
 
 }
@@ -498,8 +515,10 @@ void env_run(struct Env *e) {
 	 *   'curenv->env_tf' first.
 	 */
 	if (curenv) {
+		// printk("saved curenv.\n");
 		curenv->env_tf = *((struct Trapframe *)KSTACKTOP - 1);
 	}
+	// printk("e->env_id %d.\n", e->env_id);
 
 	/* Step 2: Change 'curenv' to 'e'. */
 	curenv = e;
@@ -520,6 +539,8 @@ void env_run(struct Env *e) {
 	 */
 	/* Exercise 3.8: Your code here. (2/2) */
 
+	// if (curenv->env_tf.cp0_epc == 0)
+	// 	print_tf(&curenv->env_tf);
 	env_pop_tf(&curenv->env_tf, curenv->env_asid);
 
 }
