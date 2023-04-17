@@ -13,6 +13,7 @@ void (*exception_handlers[32])(void) = {
     [0 ... 31] = handle_reserved,
     [0] = handle_int,
     [2 ... 3] = handle_tlb,
+		[12] = handle_ov,
 #if !defined(LAB) || LAB >= 4
     [1] = handle_mod,
     [8] = handle_sys,
@@ -26,4 +27,8 @@ void (*exception_handlers[32])(void) = {
 void do_reserved(struct Trapframe *tf) {
 	print_tf(tf);
 	panic("Unknown ExcCode %2d", (tf->cp0_cause >> 2) & 0x1f);
+}
+
+void do_ov(struct Trapframe *tf) {
+
 }
