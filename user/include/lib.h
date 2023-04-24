@@ -119,6 +119,12 @@ int remove(const char *path);
 int ftruncate(int fd, u_int size);
 int sync(void);
 
+// lab 4-1 exam
+void set_gid(u_int gid);
+int ipc_group_send(u_int whom, u_int val, const void *srcva, u_int perm);
+void syscall_set_gid(u_int gid);
+int syscall_ipc_try_group_send(u_int whom, u_int val, const void *srcva, u_int perm);
+
 #define user_assert(x)                                                                             \
 	do {                                                                                       \
 		if (!(x))                                                                          \
