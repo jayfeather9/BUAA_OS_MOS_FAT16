@@ -37,3 +37,43 @@ u_int ipc_recv(u_int *whom, void *dstva, u_int *perm) {
 
 	return env->env_ipc_value;
 }
+
+u_int in_family[NENV];
+
+void ipc_broadcast(u_int val, void * srcva, u_int perm) {
+	debugf("going in func\n");
+	u_int curid = syscall_getenvid();
+
+	for (int i = 0; i < NENV; i++) in_family[i] = 0;
+	in_family[curid] = 1;
+
+	debugf("init completed!\n");
+
+	int can_end;
+BEGIN_SEARCH:
+	can_end = 1;
+	debugf("doing one search\n");
+	for (int i = 0; i < NENV; i++) {
+		struct Env e = envs[i];
+		if (in_family[e.env_parent_id] && !in_family[e.env_id]) {
+			in_family[e.env_id] = 1;
+			can_end = 0;
+		}
+		// debugf("1");
+	}
+	if (!can_end) goto BEGIN_SEARCH;
+
+	debugf("search completed!\n");
+		
+	for (int i = 0; i < NENV; i++) {
+		struct Env e = envs[i];
+		if (e.env_status == ENV_FREE) continue;
+		if (e.env_id == curid) continue;
+		if (!in_family[e.env_id]) continue;
+
+		int r;
+		while ((r = syscall_ipc_try_send(e.env_id, val, srcva, perm)) ==
+				-E_IPC_NOT_RECV);
+	}
+	syscall_yield();
+}
