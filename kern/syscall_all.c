@@ -487,6 +487,52 @@ int sys_ipc_try_send(u_int envid, u_int value, u_int srcva, u_int perm) {
 	return 0;
 }
 
+int sys_ipc_try_group_send(u_int envid, u_int value, const void *srcva, u_int perm) {
+	struct Env *e;
+	struct Page *p;
+
+	if (srcva != 0 && is_illegal_va(srcva)) {
+		return -E_INVAL;
+	}
+
+	try(envid2env(envid, &e, 0));
+
+	if (!e->env_ipc_recving) {
+		return -E_IPC_NOT_RECV;
+	}
+
+	if (curenv->env_gid != e->env_gid) {
+		return -E_IPC_NOT_GROUP;
+	}
+
+	e->env_ipc_value = value;
+	e->env_ipc_from = curenv->env_id;
+	e->env_ipc_perm = PTE_V | perm;
+	e->env_ipc_recving = 0;
+
+	e->env_status = ENV_RUNNABLE;
+	TAILQ_INSERT_TAIL(&env_sched_list, e, env_sched_link);
+
+	if (srcva != 0) {
+		/* Exercise 4.8: Your code here. (8/8) */
+
+		// can't use sys_mem_map because envid2env check will fail
+		Pte *pte;
+		p = page_lookup(curenv->env_pgdir, srcva, &pte);
+		if (p == NULL) {
+			printk("sys_ipc_try_send page_lookup bad p == NULL.\n");
+			return -E_INVAL;
+		}
+		
+		try(page_insert(e->env_pgdir, e->env_asid, p, e->env_ipc_dstva, perm));
+	}
+	return 0;
+}
+
+void sys_set_gid(u_int gid) {
+	curenv->env_gid = gid;
+}
+
 // XXX: kernel does busy waiting here, blocking all envs
 int sys_cgetc(void) {
 	int ch;
@@ -563,6 +609,8 @@ void *syscall_table[MAX_SYSNO] = {
     [SYS_cgetc] = sys_cgetc,
     [SYS_write_dev] = sys_write_dev,
     [SYS_read_dev] = sys_read_dev,
+		[SYS_set_gid] = sys_set_gid,
+		[SYS_ipc_try_group_send] = sys_ipc_try_group_send
 };
 
 /* Overview:
