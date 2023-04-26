@@ -521,8 +521,35 @@ int sys_cgetc(void) {
  *	|    rtc     | 0x15000000 | 0x200  | (dev_rtc.h)
  *	* ---------------------------------*
  */
+int is_valid_dev_pa(u_int pa) {
+	if (pa >= 0x10000000u && pa < 0x10000020u) {
+		// console
+		return 1;
+	}
+	else if (pa >= 0x13000000u && pa < 0x13004200u) {
+		// disk
+		return 1;
+	}
+	else if (pa >= 0x15000000u && pa < 0x15000200u) {
+		// rtc
+		return 1;
+	}
+	else {
+		// invalid
+		return 0;
+	}
+}
+
 int sys_write_dev(u_int va, u_int pa, u_int len) {
 	/* Exercise 5.1: Your code here. (1/2) */
+	if ((!is_valid_dev_pa(pa)) || is_illegal_va_range(va, len)) {
+		return -E_INVAL;
+	}
+	
+	// change pa to KSEG1 va
+	u_int k1va = KSEG1 + pa;
+
+	memcpy((void *)k1va, (void *)va, len);
 
 	return 0;
 }
@@ -540,6 +567,14 @@ int sys_write_dev(u_int va, u_int pa, u_int len) {
  */
 int sys_read_dev(u_int va, u_int pa, u_int len) {
 	/* Exercise 5.1: Your code here. (2/2) */
+	if (!is_valid_dev_pa(pa) || is_illegal_va_range(va, len)) {
+		return -E_INVAL;
+	}
+	
+	// change pa to KSEG1 va
+	u_int k1va = KSEG1 + pa;
+
+	memcpy((void *)va, (void *)k1va, len);
 
 	return 0;
 }
