@@ -1,7 +1,7 @@
 #include <lib.h>
 
 int main() {
-	debugf("devtst begin\n");
+	debugf("devtst begin\n");	
 	int i = 0;
 	int r;
 	char buf[32] __attribute__((aligned(4))) = {0};
