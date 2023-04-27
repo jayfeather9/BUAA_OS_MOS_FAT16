@@ -200,7 +200,7 @@ void free_block(u_int blockno) {
 	// You can refer to the function 'block_is_free' above.
 	// Step 1: If 'blockno' is invalid (0 or >= the number of blocks in 'super'), return.
 	/* Exercise 5.4: Your code here. (1/2) */
-	if (blockno == 0 || blockno >= super->s_nblocks) {
+	if (blockno == 0 || (super && blockno >= super->s_nblocks)) {
 		return;
 	}
 

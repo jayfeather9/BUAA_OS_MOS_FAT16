@@ -241,8 +241,8 @@ struct File *create_file(struct File *dirf) {
 	// and return a pointer to the new block on 'disk'.
 	/* Exercise 5.5: Your code here. (3/3) */
 
-	int nbno = make_link_block(dirf, nblk + 1);
-	return &disk[nbno];
+	int nbno = make_link_block(dirf, nblk);
+	return (struct File *)(disk[nbno].data);
 }
 
 // Write file to disk under specified dir.
