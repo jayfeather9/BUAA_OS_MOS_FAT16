@@ -541,8 +541,8 @@ int is_valid_dev_pa(u_int pa, u_int len) {
 }
 
 int sys_write_dev(u_int va, u_int pa, u_int len) {
-	// printk("calling sys_write_dev va 0x%x pa 0x%x len \
-			0x%x.\n", va, pa, len);
+	// printk("calling sys_write_dev va 0x%x pa 0x%x len 
+	// 		0x%x.\n", va, pa, len);
 	/* Exercise 5.1: Your code here. (1/2) */
 	if ((!is_valid_dev_pa(pa, len)) || is_illegal_va_range(va, len)) {
 		// printk("Found bad pa(0x%x) with len(0x%x)\n");
@@ -570,8 +570,8 @@ int sys_write_dev(u_int va, u_int pa, u_int len) {
  * Hint: You MUST use 'memcpy' to copy data after checking the validity.
  */
 int sys_read_dev(u_int va, u_int pa, u_int len) {
-	// printk("calling sys_read_dev va 0x%x pa 0x%x len \
-			0x%x.\n", va, pa, len);
+	// printk("calling sys_read_dev va 0x%x pa 0x%x len 
+	// 		0x%x.\n", va, pa, len);
 	/* Exercise 5.1: Your code here. (2/2) */
 	if (!is_valid_dev_pa(pa, len) || is_illegal_va_range(va, len)) {
 		return -E_INVAL;
