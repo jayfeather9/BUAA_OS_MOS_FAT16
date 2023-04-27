@@ -30,9 +30,24 @@ void ide_read(u_int diskno, u_int secno, void *dst, u_int nsecs) {
 	u_int end = begin + nsecs * BY2SECT;
 
 	for (u_int off = 0; begin + off < end; off += BY2SECT) {
-		uint32_t temp = diskno;
+		uint32_t temp;
 		/* Exercise 5.3: Your code here. (1/2) */
-
+	
+		// write disk id
+		temp = diskno;
+		user_assert(syscall_write_dev(&temp, DEV_DISK_ID, sizeof(uint32_t)) == 0);
+		// write offset
+		temp = begin + off;
+		user_assert(syscall_write_dev(&temp, DEV_DISK_OFFSET, sizeof(uint32_t)) == 0);
+		// start read
+		temp = DEV_DISK_OPERATION_READ;
+		user_assert(syscall_write_dev(&temp, DEV_DISK_START_OPERATION, sizeof(uint32_t)) == 0);
+		// get return val
+		uint32_t ret_val = 0;
+		user_assert(syscall_read_dev(&ret_val, DEV_DISK_STATUS, sizeof(uint32_t)) == 0);
+		user_assert(ret_val != 0);
+		// put disk val to array
+		syscall_read_dev(dst + off, DEV_DISK_BUFFER, BY2SECT);
 	}
 }
 
@@ -57,8 +72,23 @@ void ide_write(u_int diskno, u_int secno, void *src, u_int nsecs) {
 	u_int end = begin + nsecs * BY2SECT;
 
 	for (u_int off = 0; begin + off < end; off += BY2SECT) {
-		uint32_t temp = diskno;
+		uint32_t temp;
 		/* Exercise 5.3: Your code here. (2/2) */
-
+	
+		// write disk id
+		temp = diskno;
+		user_assert(syscall_write_dev(&temp, DEV_DISK_ID, sizeof(uint32_t)) == 0);
+		// write offset
+		temp = begin + off;
+		user_assert(syscall_write_dev(&temp, DEV_DISK_OFFSET, sizeof(uint32_t)) == 0);
+		// put array val to disk
+		user_assert(syscall_write_dev(src + off, DEV_DISK_BUFFER, BY2SECT) == 0);
+		// start writing
+		temp = DEV_DISK_OPERATION_WRITE;
+		user_assert(syscall_write_dev(&temp, DEV_DISK_START_OPERATION, sizeof(uint32_t)) == 0);
+		// get return val
+		uint32_t ret_val = 0;
+		user_assert(syscall_read_dev(&ret_val, DEV_DISK_STATUS, sizeof(uint32_t)) == 0);
+		user_assert(ret_val != 0);
 	}
 }
