@@ -147,7 +147,7 @@ int map_block(u_int blockno) {
 	// Hint: Use 'diskaddr' for the virtual address.
 	/* Exercise 5.7: Your code here. (2/5) */
 
-	u_int va = diskaddr(blockno);
+	void *va = diskaddr(blockno);
 	return syscall_mem_alloc(0, va, PTE_D);
 }
 
@@ -159,6 +159,7 @@ void unmap_block(u_int blockno) {
 	/* Exercise 5.7: Your code here. (3/5) */
 
 	va = block_is_mapped(blockno);
+	user_assert(va);
 
 	// Step 2: If this block is used (not free) and dirty in cache, write it back to the disk
 	// first.
@@ -171,7 +172,7 @@ void unmap_block(u_int blockno) {
 
 	// Step 3: Unmap the virtual address via syscall.
 	/* Exercise 5.7: Your code here. (5/5) */
-	syscall_mem_unmap(0, va);
+	user_assert(!syscall_mem_unmap(0, va));
 
 	user_assert(!block_is_mapped(blockno));
 }
@@ -507,11 +508,15 @@ int dir_lookup(struct File *dir, char *name, struct File **file) {
 	u_int nblock;
 	/* Exercise 5.8: Your code here. (1/3) */
 
+	nblock = dir->f_size / BY2BLK;
+
 	// Step 2: Iterate through all blocks in the directory.
 	for (int i = 0; i < nblock; i++) {
 		// Read the i'th block of 'dir' and get its address in 'blk' using 'file_get_block'.
 		void *blk;
 		/* Exercise 5.8: Your code here. (2/3) */
+
+		try(file_get_block(dir, i, &blk));
 
 		struct File *files = (struct File *)blk;
 
@@ -522,6 +527,11 @@ int dir_lookup(struct File *dir, char *name, struct File **file) {
 			// field.
 			/* Exercise 5.8: Your code here. (3/3) */
 
+			if (strcmp(f->f_name, name) == 0) {
+				*file = f;
+				f->f_dir = dir;
+				return 0;
+			}
 		}
 	}
 
