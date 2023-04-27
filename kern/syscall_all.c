@@ -522,15 +522,15 @@ int sys_cgetc(void) {
  *	* ---------------------------------*
  */
 int is_valid_dev_pa(u_int pa, u_int len) {
-	if (pa >= 0x10000000u && pa < 0x10000020u && pa + len < 0x10000020u) {
+	if (pa >= 0x10000000u && pa <= 0x10000020u && pa + len <= 0x10000020u) {
 		// console
 		return 1;
 	}
-	else if (pa >= 0x13000000u && pa < 0x13004200u && pa + len < 0x13004200u) {
+	else if (pa >= 0x13000000u && pa <= 0x13004200u && pa + len <= 0x13004200u) {
 		// disk
 		return 1;
 	}
-	else if (pa >= 0x15000000u && pa < 0x15000200u && pa + len < 0x15000200u) {
+	else if (pa >= 0x15000000u && pa <= 0x15000200u && pa + len <= 0x15000200u) {
 		// rtc
 		return 1;
 	}
@@ -541,7 +541,7 @@ int is_valid_dev_pa(u_int pa, u_int len) {
 }
 
 int sys_write_dev(u_int va, u_int pa, u_int len) {
-	printk("calling sys_write_dev va 0x%x pa 0x%x len \
+	// printk("calling sys_write_dev va 0x%x pa 0x%x len \
 			0x%x.\n", va, pa, len);
 	/* Exercise 5.1: Your code here. (1/2) */
 	if ((!is_valid_dev_pa(pa, len)) || is_illegal_va_range(va, len)) {
@@ -570,7 +570,7 @@ int sys_write_dev(u_int va, u_int pa, u_int len) {
  * Hint: You MUST use 'memcpy' to copy data after checking the validity.
  */
 int sys_read_dev(u_int va, u_int pa, u_int len) {
-	printk("calling sys_read_dev va 0x%x pa 0x%x len \
+	// printk("calling sys_read_dev va 0x%x pa 0x%x len \
 			0x%x.\n", va, pa, len);
 	/* Exercise 5.1: Your code here. (2/2) */
 	if (!is_valid_dev_pa(pa, len) || is_illegal_va_range(va, len)) {
