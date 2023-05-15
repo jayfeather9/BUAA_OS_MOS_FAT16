@@ -92,3 +92,101 @@ void ide_write(u_int diskno, u_int secno, void *src, u_int nsecs) {
 		user_assert(ret_val != 0);
 	}
 }
+
+int ssd_map[32];
+int ssd_phy_writable[32];
+int ssd_clear_cnt[32];
+char clean_blk[1024];
+char reserved_blk[1024];
+
+void ssd_erase_phy(int phy_id) {
+	ide_write(0, phy_id, clean_blk, 1);
+	ssd_clear_cnt[phy_id]++;
+	ssd_phy_writable[phy_id] = 1;
+}
+
+int ssd_alloc() {
+	int target_phy_id = -1;
+	int min_clear_cnt = 0xffffff;
+	for (int i = 0; i < 32; i++) {
+		if (!ssd_phy_writable[i]) continue;
+		if (ssd_clear_cnt[i] < min_clear_cnt) {
+			target_phy_id = i;
+			min_clear_cnt = ssd_clear_cnt[i];
+		}
+	}
+	if (min_clear_cnt < 5) return target_phy_id;
+
+	int btarget_phy_id = -1;
+	min_clear_cnt = 0xffffff;
+	for (int i = 0; i < 32; i++) {
+		if (ssd_phy_writable[i]) continue;
+		if (ssd_clear_cnt[i] < min_clear_cnt) {
+			btarget_phy_id = i;
+			min_clear_cnt = ssd_clear_cnt[i];
+		}
+	}
+
+	ide_read(0, btarget_phy_id, reserved_blk, 1);
+	ide_write(0, target_phy_id, reserved_blk, 1);
+
+	// int blogic_no;
+	for (int i = 0; i < 32; i++) {
+		if (ssd_map[i] == btarget_phy_id) {
+			ssd_map[i] = target_phy_id;
+			break;
+		}
+	}
+
+	ssd_phy_writable[target_phy_id] = 0;
+	ssd_erase_phy(btarget_phy_id);
+
+	return btarget_phy_id;
+}
+
+void ssd_init() {
+	for (int i = 0; i < 32; i++) {
+		ssd_map[i] = -1;
+		ssd_phy_writable[i] = 1;
+		ssd_clear_cnt[i] = 0;
+	}
+	for (int i = 0; i < 1024; i++) {
+		clean_blk[i] = 0;
+	}
+}
+
+int ssd_read(u_int logic_no, void *dst) {
+	int phy_id = ssd_map[logic_no];
+	if (phy_id == -1) {
+		return -1;
+	}
+	ide_read(0, phy_id, dst, 1);
+	return 0;
+}
+
+void ssd_write(u_int logic_no, void *src) {
+	int phy_id = ssd_map[logic_no];
+	if (phy_id == -1) {
+		phy_id = ssd_alloc();
+		ssd_map[logic_no] = phy_id;
+	}
+	else {
+		ssd_erase_phy(phy_id);
+		phy_id = ssd_alloc();
+		ssd_map[logic_no] = phy_id;
+	}
+
+	// write
+	ide_write(0, phy_id, src, 1);
+
+	ssd_phy_writable[phy_id] = 0;
+}
+
+void ssd_erase(u_int logic_no) {
+	int phy_id = ssd_map[logic_no];
+	if (phy_id == -1) {
+		return;
+	}
+	ssd_erase_phy(phy_id);
+	ssd_map[logic_no] = -1;
+}
