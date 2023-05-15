@@ -3,6 +3,7 @@
 #include <env.h>
 #include <lib.h>
 #include <mmu.h>
+#include <drivers/dev_rtc.h>
 
 // Send val to whom.  This function keeps trying until
 // it succeeds.  It should panic() on any error other than
@@ -37,3 +38,33 @@ u_int ipc_recv(u_int *whom, void *dstva, u_int *perm) {
 
 	return env->env_ipc_value;
 }
+
+u_int get_time(u_int *us) {
+	u_int temp = 1;
+	user_assert(syscall_write_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_TRIGGER_READ,
+				sizeof(u_int)) == 0);
+	user_assert(syscall_read_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_USEC,
+				sizeof(u_int)) == 0);
+	*us = temp;
+	user_assert(syscall_read_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_SEC,
+				sizeof(u_int)) == 0);
+	return temp;
+}
+
+void usleep(u_int us) {
+	u_int e_ut;
+	u_int e_t = get_time(&e_ut);
+	while (1) {
+		u_int c_ut;
+		u_int c_t = get_time(&c_ut);
+		u_int rem_t = us / 1000000u;
+		u_int rem_ut = us % 1000000u;
+		if (c_t > e_t + rem_t && c_ut > e_ut + rem_ut) {
+			return;
+		}
+		else {
+			syscall_yield();
+		}
+	}
+}
+
