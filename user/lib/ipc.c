@@ -59,11 +59,10 @@ void usleep(u_int us) {
 	while (1) {
 		u_int c_ut;
 		u_int c_t = get_time(&c_ut);
-		// debugf("%u %u %u %u %u %u\n", e_t, e_ut, rem_t, rem_ut, c_t, c_ut);
 		if (c_t > e_t + rem_t) {
 			return;
 		}
-		else if (c_t >= e_t + rem_t && c_ut >= e_ut + rem_ut + 100) {
+		else if (c_t >= e_t + rem_t && c_ut >= e_ut + rem_ut) {
 			return;
 		}
 		else {
