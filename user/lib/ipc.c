@@ -41,13 +41,13 @@ u_int ipc_recv(u_int *whom, void *dstva, u_int *perm) {
 
 u_int get_time(u_int *us) {
 	u_int temp = 1;
-	user_assert(syscall_write_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_TRIGGER_READ,
-				sizeof(u_int)) == 0);
-	user_assert(syscall_read_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_USEC,
-				sizeof(u_int)) == 0);
+	syscall_write_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_TRIGGER_READ,
+				sizeof(u_int));
+	syscall_read_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_USEC,
+				sizeof(u_int));
 	*us = temp;
-	user_assert(syscall_read_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_SEC,
-				sizeof(u_int)) == 0);
+	syscall_read_dev(&temp, DEV_RTC_ADDRESS | DEV_RTC_SEC,
+				sizeof(u_int));
 	return temp;
 }
 
