@@ -59,7 +59,10 @@ void usleep(u_int us) {
 		u_int c_t = get_time(&c_ut);
 		u_int rem_t = us / 1000000u;
 		u_int rem_ut = us % 1000000u;
-		if (c_t > e_t + rem_t && c_ut > e_ut + rem_ut) {
+		if (c_t > e_t + rem_t) {
+			return;
+		}
+		else if (c_ut > e_ut + rem_ut) {
 			return;
 		}
 		else {
