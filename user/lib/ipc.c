@@ -62,7 +62,7 @@ void usleep(u_int us) {
 		if (c_t > e_t + rem_t) {
 			return;
 		}
-		else if (c_ut > e_ut + rem_ut) {
+		else if (c_t == e_t + rem_t && c_ut > e_ut + rem_ut) {
 			return;
 		}
 		else {
