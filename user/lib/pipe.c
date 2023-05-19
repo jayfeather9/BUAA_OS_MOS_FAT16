@@ -147,14 +147,15 @@ static int pipe_read(struct Fd *fd, void *vbuf, u_int n, u_int offset) {
 	rbuf = vbuf;
 	p = (struct Pipe *)fd2data(fd);
 	i = 0;
-	while (p->p_rpos != p->p_wpos || !_pipe_is_closed(fd, p)) {
-		if (p->p_rpos != p->p_wpos) {
+	while (p->p_rpos < p->p_wpos || !_pipe_is_closed(fd, p)) {
+		if (p->p_rpos < p->p_wpos) {
 			*rbuf = p->p_buf[p->p_rpos % BY2PIPE];
 			rbuf++;
 			p->p_rpos++;
 			i++;
+			if (i == n) break;
 		}
-		while (i == 0 && p->p_rpos == p->p_wpos && !_pipe_is_closed(fd, p)) {
+		while (i == 0 && p->p_rpos >= p->p_wpos && !_pipe_is_closed(fd, p)) {
 			syscall_yield();
 		}
 	}
@@ -188,11 +189,12 @@ static int pipe_write(struct Fd *fd, const void *vbuf, u_int n, u_int offset) {
 	//  - If the pipe isn't closed, keep yielding until the buffer isn't full or the
 	//    pipe is closed.
 	/* Exercise 6.1: Your code here. (3/3) */
+
 	wbuf = vbuf;
 	p = (struct Pipe *)fd2data(fd);
 	i = 0;
-	while ((p->p_wpos - p->p_rpos) < BY2PIPE || !_pipe_is_closed(fd, p)) {
-		if (i == n) break;
+
+	while (i < n && !_pipe_is_closed(fd, p)) {
 		if ((p->p_wpos - p->p_rpos) < BY2PIPE) {
 			p->p_buf[p->p_wpos % BY2PIPE] = *(wbuf + i);
 			p->p_wpos++;
