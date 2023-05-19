@@ -149,12 +149,14 @@ int dup(int oldfdnum, int newfdnum) {
 	return newfdnum;
 
 err:
-	syscall_mem_unmap(0, newfd);
+	// Exercise 6.2 : changed order to avoid pipe race
 
 	for (i = 0; i < PDMAP; i += BY2PG) {
 		syscall_mem_unmap(0, (void *)(nva + i));
 	}
 
+	syscall_mem_unmap(0, newfd);
+	
 	return r;
 }
 

@@ -108,6 +108,12 @@ static int _pipe_is_closed(struct Fd *fd, struct Pipe *p) {
 	// reading the reference counts.
 	/* Exercise 6.1: Your code here. (1/3) */
 
+	do {
+		runs = env->env_runs;
+		fd_ref = pageref(fd);
+		pipe_ref = pageref(p);
+	} while (runs != env->env_runs);
+
 	return fd_ref == pipe_ref;
 }
 
@@ -138,7 +144,23 @@ static int pipe_read(struct Fd *fd, void *vbuf, u_int n, u_int offset) {
 	//  - Otherwise, keep yielding until the buffer isn't empty or the pipe is closed.
 	/* Exercise 6.1: Your code here. (2/3) */
 
-	user_panic("pipe_read not implemented");
+	rbuf = vbuf;
+	p = (struct Pipe *)fd2data(fd);
+	i = 0;
+	while (p->p_rpos != p->p_wpos || !_pipe_is_closed(fd, p)) {
+		if (p->p_rpos != p->p_wpos) {
+			*rbuf = p->p_buf[p->p_rpos % BY2PIPE];
+			rbuf++;
+			p->p_rpos++;
+			i++;
+		}
+		while (i == 0 && p->p_rpos == p->p_wpos && !_pipe_is_closed(fd, p)) {
+			syscall_yield();
+		}
+	}
+
+	return i;
+	// user_panic("pipe_read not implemented");
 }
 
 /* Overview:
@@ -166,10 +188,25 @@ static int pipe_write(struct Fd *fd, const void *vbuf, u_int n, u_int offset) {
 	//  - If the pipe isn't closed, keep yielding until the buffer isn't full or the
 	//    pipe is closed.
 	/* Exercise 6.1: Your code here. (3/3) */
+	wbuf = vbuf;
+	p = (struct Pipe *)fd2data(fd);
+	i = 0;
+	while ((p->p_wpos - p->p_rpos) < BY2PIPE || !_pipe_is_closed(fd, p)) {
+		if (i == n) break;
+		if ((p->p_wpos - p->p_rpos) < BY2PIPE) {
+			p->p_buf[p->p_wpos % BY2PIPE] = *(wbuf + i);
+			p->p_wpos++;
+			i++;
+		}
+		while (i < n && (p->p_wpos - p->p_rpos) == BY2PIPE && !_pipe_is_closed(fd, p)) {
+			syscall_yield();
+		}
+	}
 
-	user_panic("pipe_write not implemented");
+	return i;
 
-	return n;
+	// user_panic("pipe_write not implemented");
+	// return n;
 }
 
 /* Overview:
@@ -209,8 +246,9 @@ int pipe_is_closed(int fdnum) {
  */
 static int pipe_close(struct Fd *fd) {
 	// Unmap 'fd' and the referred Pipe.
-	syscall_mem_unmap(0, (void *)fd2data(fd));
+	// Exercise 6.2 : exchanged the order of 2 unmap calls to avoid race
 	syscall_mem_unmap(0, fd);
+	syscall_mem_unmap(0, (void *)fd2data(fd));
 	return 0;
 }
 
