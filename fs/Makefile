@@ -6,7 +6,7 @@ include $(user_dir)/include.mk
 USERLIB     := $(addprefix $(user_dir)/, $(USERLIB))
 USERAPPS    := $(addprefix $(user_dir)/, $(USERAPPS))
 
-FSLIB       := fs.o ide.o
+FSLIB       := fs.o ide.o fatfs.o
 FSIMGFILES  := rootfs/motd rootfs/newmotd $(USERAPPS) $(fs-files)
 
 .PRECIOUS: %.b %.b.c
@@ -29,7 +29,7 @@ FSIMGFILES  := rootfs/motd rootfs/newmotd $(USERAPPS) $(fs-files)
 
 .PHONY: all clean image
 
-all: serv.x check.x $(FSLIB)
+all: serv.x check.x fatserv.x $(FSLIB)
 
 clean:
 	rm -rf *~ *.o *.b.c *.b *.x

@@ -4,7 +4,8 @@ lab                     ?= $(shell cat .mos-this-lab 2>/dev/null || echo 6)
 
 target_dir              := target
 mos_elf                 := $(target_dir)/mos
-user_disk               := $(target_dir)/fs.img
+user_disk1              := $(target_dir)/fs.img
+user_disk2              := $(target_dir)/fsfat.img
 link_script             := kernel.lds
 
 modules                 := lib init kern
@@ -61,6 +62,8 @@ $(mos_elf): $(modules) $(target_dir)
 
 fs-image: $(target_dir) user
 	$(MAKE) --directory=fs image fs-files="$(addprefix ../, $(fs-files))"
+	dd if=/dev/zero of=$(user_disk2) bs=33k count=1024
+	mkfs.vfat -F 16 $(user_disk2)
 
 fs: user
 user: lib
@@ -84,7 +87,9 @@ dbg: run
 endif
 
 run: gxemul_flags += -E $(shell gxemul -H | grep -q oldtestmips && echo old)testmips \
-			$(shell [ -f '$(user_disk)' ] && echo '-d $(user_disk)')
+	$(shell [ -f '$(user_disk1)' ] && echo '-d 0:$(user_disk1)') \
+	$(shell [ -f '$(user_disk2)' ] && echo '-d 1:$(user_disk2)') \
+
 run:
 	gxemul $(gxemul_flags) $(gxemul_files)
 
