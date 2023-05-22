@@ -75,7 +75,6 @@ int set_fat_entry(uint32_t clus, uint32_t entry_val);
 void debug_print_fat_entry(uint32_t clus);
 int read_fat_cluster(uint32_t clus, unsigned char *buf);
 int write_fat_cluster(uint32_t clus, unsigned char *buf);
-int alloc_fat_cluster(uint32_t *pclus);
 int alloc_fat_clusters(uint32_t *pclus, uint32_t count);
 int expand_fat_clusters(uint32_t *pclus, uint32_t count);
 int free_fat_clusters(uint32_t clus);

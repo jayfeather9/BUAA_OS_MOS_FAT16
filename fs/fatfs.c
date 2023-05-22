@@ -179,12 +179,17 @@ void debug_print_fatsec(uint32_t secno) {
 	debugf("========= end of fat section %u ===========\n", secno);
 }
 
+// alloc one fat free cluster
+// but with no care about it's entry val
+// the entry val should be manually set
+// after calling this function to alloc
 int alloc_fat_cluster(uint32_t *pclus) {
 	uint32_t clus, entry_val;
 	for (clus = 2; clus < fatDisk.CountofClusters; clus++) {
 		try(get_fat_entry(clus, &entry_val));
 		if (entry_val == 0) {
 			*pclus = clus;
+			try(set_fat_entry(clus, 0xFFFF));
 			return 0;
 		}
 	}
@@ -206,12 +211,16 @@ int alloc_fat_clusters(uint32_t *pclus, uint32_t count) {
 
 int expand_fat_clusters(uint32_t *pclus, uint32_t count) {
 	uint32_t prev_clus, clus, entry_val = 0x0;
-	for (prev_clus = *pclus; entry_val != 0xFFFF; prev_clus = entry_val) {
+	for (prev_clus = *pclus; 1; prev_clus = entry_val) {
 		try(get_fat_entry(prev_clus, &entry_val));
+		// debugf("found prev %u entry %u\n", prev_clus, entry_val);
+		if (entry_val == 0xFFFF) break;
 	}
 	for (int i = 0; i < count; i++) {
 		try(alloc_fat_cluster(&clus));
+		// debugf("alloc completed prev = %u clus = %u\n", prev_clus, clus);
 		try(set_fat_entry(prev_clus, clus));
+		// debugf("setting %u to %u\n", prev_clus, clus);
 		prev_clus = clus;
 	}
 	try(set_fat_entry(prev_clus, 0xFFFF));
