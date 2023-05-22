@@ -23,6 +23,9 @@
 
 #define BY2FILE 256
 
+// lab5-2 extra
+#define FTYPE_LNK 2
+
 struct File {
 	char f_name[MAXNAMELEN]; // filename
 	uint32_t f_size;	 // file size in bytes

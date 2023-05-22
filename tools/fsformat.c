@@ -59,45 +59,45 @@ void reverse_block(struct Block *b) {
 	uint32_t *u;
 
 	switch (b->type) {
-	case BLOCK_FREE:
-	case BLOCK_BOOT:
-		break; // do nothing.
-	case BLOCK_SUPER:
-		s = (struct Super *)b->data;
-		reverse(&s->s_magic);
-		reverse(&s->s_nblocks);
+		case BLOCK_FREE:
+		case BLOCK_BOOT:
+			break; // do nothing.
+		case BLOCK_SUPER:
+			s = (struct Super *)b->data;
+			reverse(&s->s_magic);
+			reverse(&s->s_nblocks);
 
-		ff = &s->s_root;
-		reverse(&ff->f_size);
-		reverse(&ff->f_type);
-		for (i = 0; i < NDIRECT; ++i) {
-			reverse(&ff->f_direct[i]);
-		}
-		reverse(&ff->f_indirect);
-		break;
-	case BLOCK_FILE:
-		f = (struct File *)b->data;
-		for (i = 0; i < FILE2BLK; ++i) {
-			ff = f + i;
-			if (ff->f_name[0] == 0) {
-				break;
-			} else {
-				reverse(&ff->f_size);
-				reverse(&ff->f_type);
-				for (j = 0; j < NDIRECT; ++j) {
-					reverse(&ff->f_direct[j]);
-				}
-				reverse(&ff->f_indirect);
+			ff = &s->s_root;
+			reverse(&ff->f_size);
+			reverse(&ff->f_type);
+			for (i = 0; i < NDIRECT; ++i) {
+				reverse(&ff->f_direct[i]);
 			}
-		}
-		break;
-	case BLOCK_INDEX:
-	case BLOCK_BMAP:
-		u = (uint32_t *)b->data;
-		for (i = 0; i < BY2BLK / 4; ++i) {
-			reverse(u + i);
-		}
-		break;
+			reverse(&ff->f_indirect);
+			break;
+		case BLOCK_FILE:
+			f = (struct File *)b->data;
+			for (i = 0; i < FILE2BLK; ++i) {
+				ff = f + i;
+				if (ff->f_name[0] == 0) {
+					break;
+				} else {
+					reverse(&ff->f_size);
+					reverse(&ff->f_type);
+					for (j = 0; j < NDIRECT; ++j) {
+						reverse(&ff->f_direct[j]);
+					}
+					reverse(&ff->f_indirect);
+				}
+			}
+			break;
+		case BLOCK_INDEX:
+		case BLOCK_BMAP:
+			u = (uint32_t *)b->data;
+			for (i = 0; i < BY2BLK / 4; ++i) {
+				reverse(u + i);
+			}
+			break;
 	}
 }
 
@@ -210,9 +210,9 @@ struct File *create_file(struct File *dirf) {
 	// Step 1: Iterate through all existing blocks in the directory.
 	for (int i = 0; i < nblk; ++i) {
 		int bno; // the block number
-		// If the block number is in the range of direct pointers (NDIRECT), get the 'bno'
-		// directly from 'f_direct'. Otherwise, access the indirect block on 'disk' and get
-		// the 'bno' at the index.
+						 // If the block number is in the range of direct pointers (NDIRECT), get the 'bno'
+						 // directly from 'f_direct'. Otherwise, access the indirect block on 'disk' and get
+						 // the 'bno' at the index.
 		/* Exercise 5.5: Your code here. (1/3) */
 
 		if (i < NDIRECT) {
@@ -277,6 +277,29 @@ void write_file(struct File *dirf, const char *path) {
 	close(fd); // Close file descriptor.
 }
 
+void write_symlink(struct File *dirf, const char *path) {
+	struct File *target = create_file(dirf);
+	// Your code here: 使用 readlink() 函数读取链接文件指向的路径，将其写入到下一个可用的磁盘块
+
+	char buffertmp[4096];
+	int tmp_len = readlink(path, buffertmp, 4096);
+	strcpy(disk[nextbno].data, buffertmp);
+
+	const char *fname = strrchr(path, '/');
+	if (fname) {
+		fname++;
+	} else {
+		fname = path;
+	}
+	// Your code here: 设置链接文件的文件名、大小（指向路径的字符串的长度）、类型属性
+
+	strcpy(target->f_name, fname);
+	target->f_size = tmp_len;
+	target->f_type = FTYPE_LNK;
+
+	save_block_link(target, 0, next_block(BLOCK_DATA));
+}
+
 // Overview:
 //  Write directory to disk under specified dir.
 //  Notice that we may use POSIX library functions to operate on
@@ -304,6 +327,8 @@ void write_directory(struct File *dirf, char *path) {
 			sprintf(buf, "%s/%s", path, e->d_name);
 			if (e->d_type == DT_DIR) {
 				write_directory(pdir, buf);
+			} else if (e->d_type == DT_LNK) {
+				write_symlink(pdir, buf);
 			} else {
 				write_file(pdir, buf);
 			}
@@ -325,7 +350,7 @@ int main(int argc, char **argv) {
 	for (int i = 2; i < argc; i++) {
 		char *name = argv[i];
 		struct stat stat_buf;
-		int r = stat(name, &stat_buf);
+		int r = lstat(name, &stat_buf);
 		assert(r == 0);
 		if (S_ISDIR(stat_buf.st_mode)) {
 			printf("writing directory '%s' recursively into disk\n", name);
@@ -333,6 +358,9 @@ int main(int argc, char **argv) {
 		} else if (S_ISREG(stat_buf.st_mode)) {
 			printf("writing regular file '%s' into disk\n", name);
 			write_file(&super.s_root, name);
+		} else if (S_ISLNK(stat_buf.st_mode)) {
+			printf("writing symlink file into disk\n");
+			write_symlink(&super.s_root, name);
 		} else {
 			fprintf(stderr, "'%s' has illegal file mode %o\n", name, stat_buf.st_mode);
 			exit(2);
