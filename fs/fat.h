@@ -31,13 +31,49 @@ struct FatBPB {
 };
 
 struct FatDisk {
-	uint32_t RootDirSectors;		// the count of sectors occupied by the root directory
+	uint32_t RootDirSectors;		// the count of sectors occupied by
+															// the root directory
 	uint32_t FATSz;							// FAT size
 	uint32_t TotSec;						// Total section count
-	uint32_t DataSec;						// the count of sectors in the data region }
+	uint32_t DataSec;						// the count of sectors in
+															// the data region
+	uint32_t CountofClusters;		// the count of clusters
+};
+
+#define FAT_ATTR_READ_ONLY 0x01
+#define FAT_ATTR_HIDDEN 0x02
+#define FAT_ATTR_SYSTEM 0x04
+#define FAT_ATTR_VOLUME_ID 0x08
+#define FAT_ATTR_DIRECTORY 0x10
+#define FAT_ATTR_ARCHIVE 0x20
+#define FAT_ATTR_LONG_NAME 0x0F 
+// defined as (READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID)
+// upper 2 bits of attr are reserved and should be 0
+
+struct FatDir {
+	unsigned char Name[11];
+	uint32_t Attr;
+	uint32_t NTRes;
+	uint32_t CrtTimeTenth;
+	uint32_t CrtTime;
+	uint32_t CrtDate;
+	uint32_t LstAccDate;
+	uint32_t FstClusHI;
+	uint32_t WrtTime;
+	uint32_t WrtDate;
+	uint32_t FstClusLO;
+	uint32_t FileSize;
+};
 
 void fat_init();
 void debug_print_fatBPB();
 void debug_print_fatsec(uint32_t secno);
+void debug_print_fatDisk();
+void get_fat_entry(uint32_t clus, uint32_t *pentry_val);
+void set_fat_entry(uint32_t clus, uint32_t entry_val);
+void debug_print_fat_entry(uint32_t clus);
+void read_fat_cluster(uint32_t clus, unsigned char *buf);
+void write_fat_cluster(uint32_t clus, unsigned char *buf);
 
 #endif
+
