@@ -60,13 +60,8 @@ int open(const char *path, int mode) {
 
 	if (ffd->f_file.f_type == FTYPE_LNK) {
 		char buffertmp[512];
-		// read(fd2num(fd), buffertmp, 128);
-		file_read(fd, buffertmp, 512, 0);
-		debugf("reading into %s buffertmp[5]=%u\n", buffertmp, buffertmp[5]);
-		int rtnum = open(buffertmp, mode);
-		debugf("return val %d\n", rtnum);
-		close(fd2num(fd));
-		return rtnum;
+		read(fd2num(fd), buffertmp, 256);
+		return open(buffertmp, mode);
 	}
 
 	// Step 5: Return the number of file descriptor using 'fd2num'.
