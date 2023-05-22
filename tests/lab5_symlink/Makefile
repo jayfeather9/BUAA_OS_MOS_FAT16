@@ -10,3 +10,5 @@ rootfs:
 	echo 'Hello, world!' > rootfs/real
 	ln -s /my/b rootfs/lib/a
 	ln -s /real rootfs/my/b
+	ln -s /lib/a rootfs/lib/c
+	ln -s /lib/c rootfs/lib/d
