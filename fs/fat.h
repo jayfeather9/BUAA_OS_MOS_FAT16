@@ -6,6 +6,9 @@
 #include <lib.h>
 #include <mmu.h>
 
+#define E_FAT_BAD_CLUSTER 0x1000
+#define E_FAT_CLUSTER_FULL 0x1001
+
 struct FatBPB {
 	unsigned char jmpBoot[3];
 	unsigned char OEMName[8];
@@ -31,12 +34,10 @@ struct FatBPB {
 };
 
 struct FatDisk {
-	uint32_t RootDirSectors;		// the count of sectors occupied by
-															// the root directory
+	uint32_t RootDirSectors;		// the count of sectors occupied by the root directory
 	uint32_t FATSz;							// FAT size
 	uint32_t TotSec;						// Total section count
-	uint32_t DataSec;						// the count of sectors in
-															// the data region
+	uint32_t DataSec;						// the count of sectors in the data region
 	uint32_t CountofClusters;		// the count of clusters
 };
 
@@ -69,11 +70,15 @@ void fat_init();
 void debug_print_fatBPB();
 void debug_print_fatsec(uint32_t secno);
 void debug_print_fatDisk();
-void get_fat_entry(uint32_t clus, uint32_t *pentry_val);
-void set_fat_entry(uint32_t clus, uint32_t entry_val);
+int get_fat_entry(uint32_t clus, uint32_t *pentry_val);
+int set_fat_entry(uint32_t clus, uint32_t entry_val);
 void debug_print_fat_entry(uint32_t clus);
-void read_fat_cluster(uint32_t clus, unsigned char *buf);
-void write_fat_cluster(uint32_t clus, unsigned char *buf);
+int read_fat_cluster(uint32_t clus, unsigned char *buf);
+int write_fat_cluster(uint32_t clus, unsigned char *buf);
+int alloc_fat_cluster(uint32_t *pclus);
+int alloc_fat_clusters(uint32_t *pclus, uint32_t count);
+int expand_fat_clusters(uint32_t *pclus, uint32_t count);
+int free_fat_clusters(uint32_t clus);
 
 #endif
 

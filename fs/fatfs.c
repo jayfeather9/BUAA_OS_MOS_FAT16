@@ -110,7 +110,14 @@ void debug_print_fatDisk() {
 	debugf("====== end of fat Disk ======\n");
 }
 
-void get_fat_entry(uint32_t clus, uint32_t *pentry_val) {
+int is_bad_cluster(uint32_t clus) {
+	return (clus >= fatDisk.CountofClusters);
+}
+
+int get_fat_entry(uint32_t clus, uint32_t *pentry_val) {
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
 	uint32_t fat_offset = clus * 2;
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + (fat_offset / fatBPB.BytsPerSec);
 	uint32_t fat_ent_offset = (fat_offset % fatBPB.BytsPerSec);
@@ -118,9 +125,13 @@ void get_fat_entry(uint32_t clus, uint32_t *pentry_val) {
 	unsigned char *tmp_buf = fat_buf + fat_ent_offset;
 	// debugf("reading buf = %02X %02X, offset = %u\n", tmp_buf[0], tmp_buf[1], fat_ent_offset);
 	read_little_endian(&tmp_buf, 2, pentry_val);
+	return 0;
 }
 
-void set_fat_entry(uint32_t clus, uint32_t entry_val) {
+int set_fat_entry(uint32_t clus, uint32_t entry_val) {
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
 	uint32_t fat_offset = clus * 2;
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fat_offset / fatBPB.BytsPerSec;
 	uint32_t fat_ent_offset = fat_offset % fatBPB.BytsPerSec;
@@ -128,20 +139,28 @@ void set_fat_entry(uint32_t clus, uint32_t entry_val) {
 	unsigned char *tmp_buf = fat_buf + fat_ent_offset;
 	write_little_endian(&tmp_buf, 2, entry_val);
 	ide_write(DISKNO, fat_sec, fat_buf, 1);
+	return 0;
 }
 
 void debug_print_fat_entry(uint32_t clus) {
+	user_assert(!is_bad_cluster(clus));
 	uint32_t entry_val;
 	get_fat_entry(clus, &entry_val);
 	debugf("fat entry of cluster %u: 0x%04X\n", clus, entry_val);
 }
 
-void read_fat_cluster(uint32_t clus, unsigned char *buf) {
+int read_fat_cluster(uint32_t clus, unsigned char *buf) {
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
 	ide_read(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
 }
 
-void write_fat_cluster(uint32_t clus, unsigned char *buf) {
+int write_fat_cluster(uint32_t clus, unsigned char *buf) {
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
 	ide_write(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
 }
@@ -159,3 +178,52 @@ void debug_print_fatsec(uint32_t secno) {
 	}
 	debugf("========= end of fat section %u ===========\n", secno);
 }
+
+int alloc_fat_cluster(uint32_t *pclus) {
+	uint32_t clus, entry_val;
+	for (clus = 2; clus < fatDisk.CountofClusters; clus++) {
+		try(get_fat_entry(clus, &entry_val));
+		if (entry_val == 0) {
+			*pclus = clus;
+			return 0;
+		}
+	}
+	return -E_FAT_CLUSTER_FULL;
+}
+
+int alloc_fat_clusters(uint32_t *pclus, uint32_t count) {
+	uint32_t prev_clus, clus;
+	try(alloc_fat_cluster(&prev_clus));
+	*pclus = prev_clus;
+	for (int i = 1; i < count; i++) {
+		try(alloc_fat_cluster(&clus));
+		try(set_fat_entry(prev_clus, clus));
+		prev_clus = clus;
+	}
+	try(set_fat_entry(prev_clus, 0xFFFF));
+	return 0;
+}
+
+int expand_fat_clusters(uint32_t *pclus, uint32_t count) {
+	uint32_t prev_clus, clus, entry_val = 0x0;
+	for (prev_clus = *pclus; entry_val != 0xFFFF; prev_clus = entry_val) {
+		try(get_fat_entry(prev_clus, &entry_val));
+	}
+	for (int i = 0; i < count; i++) {
+		try(alloc_fat_cluster(&clus));
+		try(set_fat_entry(prev_clus, clus));
+		prev_clus = clus;
+	}
+	try(set_fat_entry(prev_clus, 0xFFFF));
+	return 0;
+}
+
+int free_fat_clusters(uint32_t clus) {
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		try(get_fat_entry(clus, &entry_val));
+		try(set_fat_entry(clus, 0x0));
+	}
+	return 0;
+}
+
+// struct FatDir *create_fat_dir()
