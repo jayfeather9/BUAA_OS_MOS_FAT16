@@ -283,7 +283,13 @@ void write_symlink(struct File *dirf, const char *path) {
 
 	char buffertmp[4096];
 	int tmp_len = readlink(path, buffertmp, 4096);
-	strcpy(disk[nextbno].data, buffertmp);
+	char *j = buffertmp;
+	char *i;
+	for (i = (char *)disk[nextbno].data; *j != '\0'; i++, j++) {
+		*i = *j;
+	}
+	*i = '\0';
+	printf("written data %s\n", (char *)disk[nextbno].data);
 
 	const char *fname = strrchr(path, '/');
 	if (fname) {
