@@ -13,6 +13,7 @@ int main() {
 		user_panic("openat file filed: %d", r);
 	}
 	filefd = r;
+	debugf("openat ended");
 
 	char buf[1024];
 	char *str = "successfully open file!";

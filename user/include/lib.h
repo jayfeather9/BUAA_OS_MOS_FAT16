@@ -20,6 +20,11 @@ extern volatile struct Env *env;
 
 #define USED(x) (void)(x)
 
+// lab5-2 exam
+int openat(int dirfd, const char *path, int mode);
+int fsipc_openat(u_int, const char *, u_int, struct Fd *);
+
+
 // debugf
 void debugf(const char *fmt, ...);
 

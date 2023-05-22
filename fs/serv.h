@@ -21,6 +21,9 @@
 void ide_read(u_int diskno, u_int secno, void *dst, u_int nsecs);
 void ide_write(u_int diskno, u_int secno, void *src, u_int nsecs);
 
+// lab5-2 exam
+int file_openat(struct File *dir, char *path, struct File **pfile);
+
 /* fs.c */
 int file_open(char *path, struct File **pfile);
 int file_get_block(struct File *f, u_int blockno, void **pblk);
