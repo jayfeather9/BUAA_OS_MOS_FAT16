@@ -62,7 +62,7 @@ int open(const char *path, int mode) {
 		char buffertmp[4096];
 		read(fd2num(fd), buffertmp, 4096);
 		int rt = open(buffertmp, mode);
-		close(fd2num(fd));
+		// close(fd2num(fd));
 		return rt;
 	}
 
