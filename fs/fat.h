@@ -8,6 +8,7 @@
 
 #define E_FAT_BAD_CLUSTER 0x1000
 #define E_FAT_CLUSTER_FULL 0x1001
+#define E_FAT_DIFF 0x1002
 
 struct FatBPB {
 	unsigned char jmpBoot[3];

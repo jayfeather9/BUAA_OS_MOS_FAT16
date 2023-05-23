@@ -16,7 +16,7 @@ struct FatDisk *get_fat_disk() {
 	return &fatDisk;
 }
 
-unsigned char fat_buf[BY2SECT];
+unsigned char fat_buf[BY2SECT], fat_buf2[BY2SECT];
 
 void read_array(unsigned char **buf, int len, unsigned char *ret) {
 	for (int i = 0; i < len; i++) {
@@ -123,6 +123,15 @@ int is_bad_cluster(uint32_t clus) {
 	return (clus >= fatDisk.CountofClusters);
 }
 
+int is_different_buffers(uint32_t n) {
+	for (int i = 0; i < n; i++) {
+		if (fat_buf[i] != fat_buf2[i]) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int get_fat_entry(uint32_t clus, uint32_t *pentry_val) {
 	if (is_bad_cluster(clus)) {
 		return -E_FAT_BAD_CLUSTER;
@@ -131,6 +140,16 @@ int get_fat_entry(uint32_t clus, uint32_t *pentry_val) {
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + (fat_offset / fatBPB.BytsPerSec);
 	uint32_t fat_ent_offset = (fat_offset % fatBPB.BytsPerSec);
 	ide_read(DISKNO, fat_sec, fat_buf, 1);
+
+	// check all FATs same
+	for (int i = 1; i < fatBPB.NumFATs; i++) {
+		uint32_t other_fat_sec = (i * fatDisk.FATSz) + fat_sec;
+		ide_read(DISKNO, other_fat_sec, fat_buf2, 1);
+		if (is_different_buffers(fatBPB.BytsPerSec)) {
+			return -E_FAT_DIFF;
+		}
+	}
+
 	unsigned char *tmp_buf = fat_buf + fat_ent_offset;
 	// debugf("reading buf = %02X %02X, offset = %u\n", tmp_buf[0], tmp_buf[1], fat_ent_offset);
 	read_little_endian(&tmp_buf, 2, pentry_val);
@@ -145,9 +164,23 @@ int set_fat_entry(uint32_t clus, uint32_t entry_val) {
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fat_offset / fatBPB.BytsPerSec;
 	uint32_t fat_ent_offset = fat_offset % fatBPB.BytsPerSec;
 	ide_read(DISKNO, fat_sec, fat_buf, 1);
+
+	// check all FATs same
+	for (int i = 1; i < fatBPB.NumFATs; i++) {
+		uint32_t other_fat_sec = (i * fatDisk.FATSz) + fat_sec;
+		ide_read(DISKNO, other_fat_sec, fat_buf2, 1);
+		if (is_different_buffers(fatBPB.BytsPerSec)) {
+			return -E_FAT_DIFF;
+		}
+	}
+
 	unsigned char *tmp_buf = fat_buf + fat_ent_offset;
 	write_little_endian(&tmp_buf, 2, entry_val);
 	ide_write(DISKNO, fat_sec, fat_buf, 1);
+	for (int i = 1; i < fatBPB.NumFATs; i++) {
+		uint32_t other_fat_sec = (i * fatDisk.FATSz) + fat_sec;
+		ide_write(DISKNO, other_fat_sec, fat_buf, 1);
+	}
 	return 0;
 }
 

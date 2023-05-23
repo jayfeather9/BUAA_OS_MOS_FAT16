@@ -14,6 +14,7 @@ int main() {
 	// set_fat_entry(2, 0x5f);
 	// debug_print_fat_entry(2);
 	debug_print_fatsec(4);
+	debug_print_fatsec(72);
 
 	uint32_t clusst, clus, clus2st, clus2, next_entry;
 
@@ -31,6 +32,8 @@ int main() {
 		get_fat_entry(clus2, &next_entry);
 		clus2 = next_entry;
 	}
+	debug_print_fatsec(4);
+	debug_print_fatsec(72);
 
 	clus = clusst;
 	debugf("expanding 7 clusters to prev 1 cluster\n");
