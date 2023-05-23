@@ -80,6 +80,7 @@ int expand_fat_clusters(uint32_t *pclus, uint32_t count);
 int free_fat_clusters(uint32_t clus);
 int get_cluster_data(uint32_t clus, unsigned char *buf);
 int set_cluster_data(uint32_t clus, unsigned char *buf);
+void debug_print_cluster_data(uint32_t clus);
 
 #endif
 

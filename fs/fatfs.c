@@ -253,6 +253,20 @@ int set_cluster_data(uint32_t clus, unsigned char *buf) {
 	return 0;
 }
 
+void debug_print_cluster_data(uint32_t clus) {
+	unsigned char buf[16384];
+	get_cluster_data(clus, buf);
+	debugf("========= printing cluster %u =========\n", clus);
+	for (int i = 0; i < 32; i++) {
+		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
+		for (int j = 0; j < 16; j++) {
+			debugf("%02X ", buf[i*16+j]);
+		}
+		debugf("\n");
+	}
+	debugf("========= end of cluster %u ===========\n", clus);
+}
+
 int create_fat_dir(struct FatDir *dir, const char *name) {
 	dir->Attr = FAT_ATTR_DIRECTORY;
 	dir->FileSize = 0;
