@@ -155,6 +155,7 @@ int read_fat_cluster(uint32_t clus, unsigned char *buf) {
 	}
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
 	ide_read(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
+	return 0;
 }
 
 int write_fat_cluster(uint32_t clus, unsigned char *buf) {
@@ -163,6 +164,7 @@ int write_fat_cluster(uint32_t clus, unsigned char *buf) {
 	}
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
 	ide_write(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
+	return 0;
 }
 
 void debug_print_fatsec(uint32_t secno) {
@@ -270,4 +272,6 @@ void debug_print_cluster_data(uint32_t clus) {
 int create_fat_dir(struct FatDir *dir, const char *name) {
 	dir->Attr = FAT_ATTR_DIRECTORY;
 	dir->FileSize = 0;
+
+	return 0;
 }
