@@ -39,6 +39,7 @@ struct FatDisk {
 	uint32_t TotSec;						// Total section count
 	uint32_t DataSec;						// the count of sectors in the data region
 	uint32_t CountofClusters;		// the count of clusters
+	uint32_t FirstRootDirSecNum;
 };
 
 #define FAT_ATTR_READ_ONLY 0x01
@@ -66,6 +67,9 @@ struct FatDir {
 // uint32_t NTRes; // reserved and should be 0
 // uint32_t FstClusHI; // for FAT16, must be 0
 
+struct FatBPB *get_fat_BPB();
+struct FatDisk *get_fat_disk();
+
 void fat_init();
 void debug_print_fatBPB();
 void debug_print_fatsec(uint32_t secno);
@@ -75,12 +79,11 @@ int set_fat_entry(uint32_t clus, uint32_t entry_val);
 void debug_print_fat_entry(uint32_t clus);
 int read_fat_cluster(uint32_t clus, unsigned char *buf);
 int write_fat_cluster(uint32_t clus, unsigned char *buf);
+void debug_print_cluster_data(uint32_t clus);
 int alloc_fat_clusters(uint32_t *pclus, uint32_t count);
 int expand_fat_clusters(uint32_t *pclus, uint32_t count);
 int free_fat_clusters(uint32_t clus);
-int get_cluster_data(uint32_t clus, unsigned char *buf);
-int set_cluster_data(uint32_t clus, unsigned char *buf);
-void debug_print_cluster_data(uint32_t clus);
+
 
 #endif
 

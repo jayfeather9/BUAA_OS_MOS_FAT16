@@ -7,10 +7,8 @@ int main() {
 	debugf("test begin\n");	
 	
 	fat_init();
-    debug_print_cluster_data(0);
-    debug_print_cluster_data(1);
-    debug_print_cluster_data(2);
-    debug_print_cluster_data(3);
+    struct FatDisk *fdk = get_fat_disk();
+    debug_print_fatsec(fdk.FirstRootDirSecNum);
 
 	return 0;
 }

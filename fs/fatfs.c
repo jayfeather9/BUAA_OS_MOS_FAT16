@@ -8,6 +8,14 @@
 struct FatBPB fatBPB;
 struct FatDisk fatDisk;
 
+struct FatBPB *get_fat_BPB() {
+	return &fatBPB;
+}
+
+struct FatDisk *get_fat_disk() {
+	return &fatDisk;
+}
+
 unsigned char fat_buf[BY2SECT];
 
 void read_array(unsigned char **buf, int len, unsigned char *ret) {
@@ -65,6 +73,7 @@ void fat_init() {
 	fatDisk.TotSec = (fatBPB.TotSec16 != 0) ? fatBPB.TotSec16 : fatBPB.TotSec32;
 	fatDisk.DataSec = fatDisk.TotSec - (fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors);
 	fatDisk.CountofClusters = fatDisk.DataSec / fatBPB.SecPerClus;
+	fatDisk.FirstRootDirSecNum = fatBPB.RsvdSecCnt + (fatBPB.NumFATs * fatDisk.FATSz);
 }
 
 void debug_print_fatBPB() {
@@ -167,6 +176,20 @@ int write_fat_cluster(uint32_t clus, unsigned char *buf) {
 	return 0;
 }
 
+void debug_print_cluster_data(uint32_t clus) {
+	unsigned char buf[16384];
+	read_fat_cluster(clus, buf);
+	debugf("========= printing cluster %u =========\n", clus);
+	for (int i = 0; i < 32; i++) {
+		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
+		for (int j = 0; j < 16; j++) {
+			debugf("%02X ", buf[i*16+j]);
+		}
+		debugf("\n");
+	}
+	debugf("========= end of cluster %u ===========\n", clus);
+}
+
 void debug_print_fatsec(uint32_t secno) {
 	unsigned char buf[1024];
 	ide_read(DISKNO, secno, buf, 1);
@@ -235,38 +258,6 @@ int free_fat_clusters(uint32_t clus) {
 		try(set_fat_entry(clus, 0x0));
 	}
 	return 0;
-}
-
-int get_cluster_data(uint32_t clus, unsigned char *buf) {
-	if (is_bad_cluster(clus)) {
-		return -E_FAT_BAD_CLUSTER;
-	}
-	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
-	ide_read(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
-	return 0;
-}
-
-int set_cluster_data(uint32_t clus, unsigned char *buf) {
-	if (is_bad_cluster(clus)) {
-		return -E_FAT_BAD_CLUSTER;
-	}
-	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
-	ide_write(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
-	return 0;
-}
-
-void debug_print_cluster_data(uint32_t clus) {
-	unsigned char buf[16384];
-	get_cluster_data(clus, buf);
-	debugf("========= printing cluster %u =========\n", clus);
-	for (int i = 0; i < 32; i++) {
-		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
-		for (int j = 0; j < 16; j++) {
-			debugf("%02X ", buf[i*16+j]);
-		}
-		debugf("\n");
-	}
-	debugf("========= end of cluster %u ===========\n", clus);
 }
 
 int create_fat_dir(struct FatDir *dir, const char *name) {
