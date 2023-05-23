@@ -54,17 +54,17 @@ struct FatDisk {
 struct FatDir {
 	unsigned char Name[11];
 	uint32_t Attr;
-	uint32_t NTRes;
 	uint32_t CrtTimeTenth;
 	uint32_t CrtTime;
 	uint32_t CrtDate;
 	uint32_t LstAccDate;
-	uint32_t FstClusHI;
 	uint32_t WrtTime;
 	uint32_t WrtDate;
 	uint32_t FstClusLO;
 	uint32_t FileSize;
 };
+// uint32_t NTRes; // reserved and should be 0
+// uint32_t FstClusHI; // for FAT16, must be 0
 
 void fat_init();
 void debug_print_fatBPB();
@@ -78,6 +78,8 @@ int write_fat_cluster(uint32_t clus, unsigned char *buf);
 int alloc_fat_clusters(uint32_t *pclus, uint32_t count);
 int expand_fat_clusters(uint32_t *pclus, uint32_t count);
 int free_fat_clusters(uint32_t clus);
+int get_cluster_data(uint32_t clus, unsigned char *buf);
+int set_cluster_data(uint32_t clus, unsigned char *buf);
 
 #endif
 

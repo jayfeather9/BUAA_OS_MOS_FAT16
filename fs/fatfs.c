@@ -235,4 +235,25 @@ int free_fat_clusters(uint32_t clus) {
 	return 0;
 }
 
-// struct FatDir *create_fat_dir()
+int get_cluster_data(uint32_t clus, unsigned char *buf) {
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
+	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
+	ide_read(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
+	return 0;
+}
+
+int set_cluster_data(uint32_t clus, unsigned char *buf) {
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
+	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
+	ide_write(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
+	return 0;
+}
+
+int create_fat_dir(struct FatDir *dir, const char *name) {
+	dir->Attr = FAT_ATTR_DIRECTORY;
+	dir->FileSize = 0;
+}
