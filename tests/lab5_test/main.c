@@ -12,5 +12,6 @@ int main() {
 
 	debug_print_fatBPB();
 	debug_print_fatDisk();
+	read_dir();
 	return 0;
 }

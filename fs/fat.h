@@ -49,24 +49,38 @@ struct FatDisk {
 #define FAT_ATTR_VOLUME_ID 0x08
 #define FAT_ATTR_DIRECTORY 0x10
 #define FAT_ATTR_ARCHIVE 0x20
-#define FAT_ATTR_LONG_NAME 0x0F 
+#define FAT_ATTR_LONG_NAME 0x0F
 // defined as (READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID)
+#define FAT_ATTR_LONG_NAME_MASK 0x3F
+// defined as (READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID | DIRECTORY | ARCHIVE)
+
 // upper 2 bits of attr are reserved and should be 0
 
-struct FatDir {
+struct FatShortDir {
 	unsigned char Name[11];
-	uint32_t Attr;
-	uint32_t CrtTimeTenth;
-	uint32_t CrtTime;
-	uint32_t CrtDate;
-	uint32_t LstAccDate;
-	uint32_t WrtTime;
-	uint32_t WrtDate;
-	uint32_t FstClusLO;
+	uint8_t Attr;
+	uint8_t NTRes;
+	uint8_t CrtTimeTenth;
+	uint16_t CrtTime;
+	uint16_t CrtDate;
+	uint16_t LstAccDate;
+	uint16_t FstClusHI;
+	uint16_t WrtTime;
+	uint16_t WrtDate;
+	uint16_t FstClusLO;
 	uint32_t FileSize;
 };
-// uint32_t NTRes; // reserved and should be 0
-// uint32_t FstClusHI; // for FAT16, must be 0
+
+struct FatLongDir {
+	uint8_t Ord;
+	uint8_t Name1[10];
+	uint8_t Attr;
+	uint8_t Type;
+	uint8_t Chksum;
+	uint8_t Name2[12];
+	uint16_t FstClusLO;
+	uint8_t Name3[4];
+};
 
 struct FatBPB *get_fat_BPB();
 struct FatDisk *get_fat_disk();
@@ -84,6 +98,10 @@ void debug_print_cluster_data(uint32_t clus);
 int alloc_fat_clusters(uint32_t *pclus, uint32_t count);
 int expand_fat_clusters(uint32_t *pclus, uint32_t count);
 int free_fat_clusters(uint32_t clus);
+void debug_print_short_dir(struct FatShortDir *dir);
+void debug_print_long_dir(struct FatLongDir *dir);
+int read_dir();
+unsigned char generate_long_file_check_sum(unsigned char *pFcbName);
 
 
 #endif

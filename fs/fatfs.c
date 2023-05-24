@@ -116,6 +116,7 @@ void debug_print_fatDisk() {
 	debugf("TotSec: %d\n", fatDisk.TotSec);
 	debugf("DataSec: %d\n", fatDisk.DataSec);
 	debugf("CountofClusters: %d\n", fatDisk.CountofClusters);
+	debugf("FirstRootDirSecNum: %d\n", fatDisk.FirstRootDirSecNum);
 	debugf("====== end of fat Disk ======\n");
 }
 
@@ -293,9 +294,74 @@ int free_fat_clusters(uint32_t clus) {
 	return 0;
 }
 
-int create_fat_dir(struct FatDir *dir, const char *name) {
-	dir->Attr = FAT_ATTR_DIRECTORY;
-	dir->FileSize = 0;
+void debug_print_short_dir(struct FatShortDir *dir) {
+	debugf("========= printing fat short directory =========\n");
+	debugf("dir name: ");
+	for (int i = 0; i < 11; i++) debugf("%c", dir->Name[i]);
+	debugf("\ndir attr: 0x%02X\n", dir->Attr);
+	debugf("dir nt res: 0x%02X\n", dir->NTRes);
+	debugf("dir crt time tenth: 0x%02X\n", dir->CrtTimeTenth);
+	debugf("dir crt time: 0x%04X\n", dir->CrtTime);
+	debugf("dir crt date: 0x%04X\n", dir->CrtDate);
+	debugf("dir lst acc date: 0x%04X\n", dir->LstAccDate);
+	debugf("dir fst clus hi: 0x%04X\n", dir->FstClusHI);
+	debugf("dir wrt time: 0x%04X\n", dir->WrtTime);
+	debugf("dir wrt date: 0x%04X\n", dir->WrtDate);
+	debugf("dir fst clus lo: 0x%04X\n", dir->FstClusLO);
+	debugf("dir file size: 0x%08X\n", dir->FileSize);
+	debugf("corresponding long chksum : 0x%02X\n", generate_long_file_check_sum(dir->Name));
+	debugf("========= end of fat short directory ===========\n");
+}
 
+void debug_print_long_dir(struct FatLongDir *dir) {
+	debugf("========= printing fat long directory =========\n");
+	debugf("order: %u\n", (dir->Ord & (uint8_t)(~0x40)));
+	debugf("dir name: ");
+	for (int i = 0; i < 10; i++) debugf("%c", dir->Name1[i]);
+	for (int i = 0; i < 12; i++) debugf("%c", dir->Name2[i]);
+	for (int i = 0; i < 4; i++) debugf("%c", dir->Name3[i]);
+	debugf("\ndir attr: 0x%02X\n", dir->Attr);
+	debugf("dir type: 0x%02X\n", dir->Type);
+	debugf("dir check sum: 0x%02X\n", dir->Chksum);
+	debugf("dir fst clus lo: 0x%04X\n", dir->FstClusLO);
+	debugf("========= end of fat long directory ===========\n");
+}
+
+//-----------------------------------------------------------------------------
+// This is a function provided by FAT document.
+// ChkSum()
+// Returns an unsigned byte checksum computed on an unsigned byte
+// array. The array must be 11 bytes long and is assumed to contain
+// a name stored in the format of a MS-DOS directory entry.
+// Passed: pFcbName Pointer to an unsigned byte array assumed to be
+// 11 bytes long.
+// Returns: Sum An 8-bit unsigned checksum of the array pointed
+// to by pFcbName.
+//------------------------------------------------------------------------------
+unsigned char generate_long_file_check_sum(unsigned char *pFcbName) {
+	short FcbNameLen;
+	unsigned char Sum;
+	Sum = 0;
+	for (FcbNameLen=11; FcbNameLen!=0; FcbNameLen--) {
+		// NOTE: The operation is an unsigned char rotate right
+		Sum = ((Sum & 1) ? 0x80 : 0) + (Sum >> 1) + *pFcbName++;
+	}
+	return (Sum);
+}
+
+int read_dir() {
+	ide_read(DISKNO, fatDisk.FirstRootDirSecNum, fat_buf, 1);
+	unsigned char *buf = (unsigned char *)fat_buf;
+	struct FatShortDir *fatDir = (struct FatShortDir *)buf;
+	while (fatDir->Name[0] != 0) {
+		fatDir = (struct FatShortDir *)buf;
+		if ((fatDir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+			// debug_print_short_dir(fatDir);
+			debug_print_long_dir((struct FatLongDir *)fatDir);
+		}
+		else
+			debug_print_short_dir(fatDir);
+		buf += sizeof(struct FatShortDir);
+	}
 	return 0;
 }
