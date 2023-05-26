@@ -16,8 +16,6 @@ struct FatDisk *get_fat_disk() {
 	return &fatDisk;
 }
 
-unsigned char fat_buf[BY2SECT], fat_buf2[BY2SECT];
-
 void read_array(unsigned char **buf, int len, unsigned char *ret) {
 	for (int i = 0; i < len; i++) {
 		ret[i] = **buf;
@@ -43,12 +41,14 @@ void write_little_endian(unsigned char **buf, int len, uint32_t val) {
 }
 
 void fat_init() {
+	unsigned char fat_buf[BY2SECT];
 	ide_read(DISKNO, 0, fat_buf, 1);
 	unsigned char *buf = (unsigned char *)fat_buf;
 	read_array(&buf, 3, fatBPB.jmpBoot);
 	read_array(&buf, 8, fatBPB.OEMName);
 	read_little_endian(&buf, 2, &fatBPB.BytsPerSec);
 	read_little_endian(&buf, 1, &fatBPB.SecPerClus);
+	user_assert(fatBPB.BytsPerSec * fatBPB.SecPerClus <= FAT_MAX_CLUS_SIZE);
 	read_little_endian(&buf, 2, &fatBPB.RsvdSecCnt);
 	read_little_endian(&buf, 1, &fatBPB.NumFATs);
 	read_little_endian(&buf, 2, &fatBPB.RootEntCnt);
@@ -67,8 +67,10 @@ void fat_init() {
 	read_array(&buf, 8, fatBPB.FilSysType);
 	buf += 448;
 	read_array(&buf, 2, fatBPB.Signature_word);
+	user_assert(fatBPB.Signature_word[0] == 0x55 && fatBPB.Signature_word[1] == 0xAA);
 
 	fatDisk.RootDirSectors = (fatBPB.RootEntCnt * 32 + fatBPB.BytsPerSec - 1) / fatBPB.BytsPerSec;
+	user_assert(fatDisk.RootDirSectors * fatBPB.BytsPerSec <= FAT_MAX_FILE_SIZE);
 	fatDisk.FATSz = fatBPB.FATSz16;
 	fatDisk.TotSec = (fatBPB.TotSec16 != 0) ? fatBPB.TotSec16 : fatBPB.TotSec32;
 	fatDisk.DataSec = fatDisk.TotSec - (fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors);
@@ -124,9 +126,15 @@ int is_bad_cluster(uint32_t clus) {
 	return (clus >= fatDisk.CountofClusters);
 }
 
-int is_different_buffers(uint32_t n) {
+int is_free_cluster(uint32_t clus) {
+	uint32_t entry_val;
+	get_fat_entry(clus, &entry_val);
+	return (entry_val == 0);
+}
+
+int is_different_buffers(uint32_t n, unsigned char *fat_buf1, unsigned char *fat_buf2) {
 	for (int i = 0; i < n; i++) {
-		if (fat_buf[i] != fat_buf2[i]) {
+		if (fat_buf1[i] != fat_buf2[i]) {
 			return 1;
 		}
 	}
@@ -140,18 +148,20 @@ int get_fat_entry(uint32_t clus, uint32_t *pentry_val) {
 	uint32_t fat_offset = clus * 2;
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + (fat_offset / fatBPB.BytsPerSec);
 	uint32_t fat_ent_offset = (fat_offset % fatBPB.BytsPerSec);
-	ide_read(DISKNO, fat_sec, fat_buf, 1);
+
+	unsigned char fat_buf1[BY2SECT], fat_buf2[BY2SECT];
+	ide_read(DISKNO, fat_sec, fat_buf1, 1);
 
 	// check all FATs same
 	for (int i = 1; i < fatBPB.NumFATs; i++) {
 		uint32_t other_fat_sec = (i * fatDisk.FATSz) + fat_sec;
 		ide_read(DISKNO, other_fat_sec, fat_buf2, 1);
-		if (is_different_buffers(fatBPB.BytsPerSec)) {
+		if (is_different_buffers(fatBPB.BytsPerSec, fat_buf1, fat_buf2)) {
 			return -E_FAT_DIFF;
 		}
 	}
 
-	unsigned char *tmp_buf = fat_buf + fat_ent_offset;
+	unsigned char *tmp_buf = fat_buf1 + fat_ent_offset;
 	// debugf("reading buf = %02X %02X, offset = %u\n", tmp_buf[0], tmp_buf[1], fat_ent_offset);
 	read_little_endian(&tmp_buf, 2, pentry_val);
 	return 0;
@@ -164,23 +174,24 @@ int set_fat_entry(uint32_t clus, uint32_t entry_val) {
 	uint32_t fat_offset = clus * 2;
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fat_offset / fatBPB.BytsPerSec;
 	uint32_t fat_ent_offset = fat_offset % fatBPB.BytsPerSec;
-	ide_read(DISKNO, fat_sec, fat_buf, 1);
+	unsigned char fat_buf1[BY2SECT], fat_buf2[BY2SECT];
+	ide_read(DISKNO, fat_sec, fat_buf1, 1);
 
 	// check all FATs same
 	for (int i = 1; i < fatBPB.NumFATs; i++) {
 		uint32_t other_fat_sec = (i * fatDisk.FATSz) + fat_sec;
 		ide_read(DISKNO, other_fat_sec, fat_buf2, 1);
-		if (is_different_buffers(fatBPB.BytsPerSec)) {
+		if (is_different_buffers(fatBPB.BytsPerSec, fat_buf1, fat_buf2)) {
 			return -E_FAT_DIFF;
 		}
 	}
 
-	unsigned char *tmp_buf = fat_buf + fat_ent_offset;
+	unsigned char *tmp_buf = fat_buf1 + fat_ent_offset;
 	write_little_endian(&tmp_buf, 2, entry_val);
-	ide_write(DISKNO, fat_sec, fat_buf, 1);
+	ide_write(DISKNO, fat_sec, fat_buf1, 1);
 	for (int i = 1; i < fatBPB.NumFATs; i++) {
 		uint32_t other_fat_sec = (i * fatDisk.FATSz) + fat_sec;
-		ide_write(DISKNO, other_fat_sec, fat_buf, 1);
+		ide_write(DISKNO, other_fat_sec, fat_buf1, 1);
 	}
 	return 0;
 }
@@ -193,20 +204,72 @@ void debug_print_fat_entry(uint32_t clus) {
 }
 
 int read_fat_cluster(uint32_t clus, unsigned char *buf) {
+	if (clus == 0) {
+		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		return 0;
+	}
 	if (is_bad_cluster(clus)) {
 		return -E_FAT_BAD_CLUSTER;
 	}
-	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
+	if (is_free_cluster(clus)) {
+		return -E_FAT_ACCESS_FREE_CLUSTER;
+	}
+	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.SecPerClus;
 	ide_read(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
 	return 0;
 }
 
-int write_fat_cluster(uint32_t clus, unsigned char *buf) {
+int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	if (clus == 0) {
+		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		return 0;
+	}
 	if (is_bad_cluster(clus)) {
 		return -E_FAT_BAD_CLUSTER;
 	}
-	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + (clus - 2) * fatBPB.SecPerClus;
-	ide_write(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
+	if (is_free_cluster(clus)) {
+		return -E_FAT_ACCESS_FREE_CLUSTER;
+	}
+	unsigned char tmp_buf[FAT_MAX_CLUS_SIZE];
+	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.SecPerClus;
+	ide_read(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
+	for (int i = 0; i < nbyts; i++) tmp_buf[i] = buf[i];
+	ide_write(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
+	return 0;
+}
+
+int read_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	if (clus == 0) {
+		return read_fat_cluster(0, buf);
+	}
+	uint32_t prev_clus, entry_val = 0x0, finished_byts = 0;
+	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
+		try(get_fat_entry(prev_clus, &entry_val));
+		// debugf("trying reading cluster %u\n", prev_clus);
+		try(read_fat_cluster(prev_clus, buf));
+		finished_byts += fatBPB.BytsPerSec * fatBPB.SecPerClus;
+		// debugf("finished byts %u total %u\n", finished_byts, nbyts);
+		if (finished_byts >= nbyts)break;
+		buf += finished_byts;
+	}
+	return 0;
+}
+
+int write_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	if (clus == 0) {
+		return write_fat_cluster(0, buf, nbyts);
+	}
+	uint32_t prev_clus, entry_val = 0x0, finished_byts = 0;
+	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
+		try(get_fat_entry(prev_clus, &entry_val));
+		finished_byts += fatBPB.BytsPerSec * fatBPB.SecPerClus;
+		if (finished_byts < nbyts)
+			try(write_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus));
+		else
+			try(write_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus - (finished_byts - nbyts)));
+		if (finished_byts >= nbyts)break;
+		buf += finished_byts;
+	}
 	return 0;
 }
 
@@ -294,20 +357,28 @@ int free_fat_clusters(uint32_t clus) {
 	return 0;
 }
 
+void debug_print_date(uint16_t date) {
+	debugf("%04u-%02u-%02u", ((date & 0xFE00) >> 9) + 1980, (date & 0x1E0) >> 5, (date & 0x1F));
+}
+
+void debug_print_time(uint16_t time) {
+	debugf("%02u:%02u:%02u", (time & 0xF800) >> 11, (time & 0x7E0) >> 5, (time & 0x1F) * 2);
+}
+
 void debug_print_short_dir(struct FatShortDir *dir) {
 	debugf("========= printing fat short directory =========\n");
 	debugf("dir name: ");
 	for (int i = 0; i < 11; i++) debugf("%c", dir->Name[i]);
 	debugf("\ndir attr: 0x%02X\n", dir->Attr);
 	debugf("dir nt res: 0x%02X\n", dir->NTRes);
-	debugf("dir crt time tenth: 0x%02X\n", dir->CrtTimeTenth);
-	debugf("dir crt time: 0x%04X\n", dir->CrtTime);
-	debugf("dir crt date: 0x%04X\n", dir->CrtDate);
-	debugf("dir lst acc date: 0x%04X\n", dir->LstAccDate);
+	debugf("dir crt time tenth: %u\n", dir->CrtTimeTenth);
+	debugf("dir crt time: "); debug_print_time(dir->CrtTime);
+	debugf("\ndir crt date: "); debug_print_date(dir->CrtDate);
+	debugf("\ndir lst acc date: 0x%04X\n", dir->LstAccDate);
 	debugf("dir fst clus hi: 0x%04X\n", dir->FstClusHI);
-	debugf("dir wrt time: 0x%04X\n", dir->WrtTime);
-	debugf("dir wrt date: 0x%04X\n", dir->WrtDate);
-	debugf("dir fst clus lo: 0x%04X\n", dir->FstClusLO);
+	debugf("dir wrt time: "); debug_print_time(dir->WrtTime);
+	debugf("\ndir wrt date: "); debug_print_date(dir->WrtDate);
+	debugf("\ndir fst clus lo: 0x%04X\n", dir->FstClusLO);
 	debugf("dir file size: 0x%08X\n", dir->FileSize);
 	debugf("corresponding long chksum : 0x%02X\n", generate_long_file_check_sum(dir->Name));
 	debugf("========= end of fat short directory ===========\n");
@@ -349,8 +420,9 @@ unsigned char generate_long_file_check_sum(unsigned char *pFcbName) {
 	return (Sum);
 }
 
-int read_dir() {
-	ide_read(DISKNO, fatDisk.FirstRootDirSecNum, fat_buf, 1);
+int debug_print_file_as_dir_entry(uint32_t clus) {
+	unsigned char fat_buf[FAT_MAX_FILE_SIZE];
+	try(read_fat_clusters(clus, fat_buf, FAT_MAX_FILE_SIZE));
 	unsigned char *buf = (unsigned char *)fat_buf;
 	struct FatShortDir *fatDir = (struct FatShortDir *)buf;
 	while (fatDir->Name[0] != 0) {
@@ -363,5 +435,281 @@ int read_dir() {
 			debug_print_short_dir(fatDir);
 		buf += sizeof(struct FatShortDir);
 	}
+	return 0;
+}
+
+int read_and_cat_long_file_name(struct FatLongDir *fatlDir, unsigned char *ori_name) {
+	unsigned char cur_name[30];
+	unsigned char *name = cur_name, *st_ori_name = ori_name;
+	for (int i = 0; i < 10; i += 2) {
+		if (fatlDir->Name1[i] == (uint8_t)0xFF && fatlDir->Name1[i+1] == (uint8_t)0xFF) goto read_long_end;
+		*name++ = fatlDir->Name1[i];
+	}
+	for (int i = 0; i < 12; i += 2) {
+		if (fatlDir->Name2[i] == (uint8_t)0xFF && fatlDir->Name2[i+1] == (uint8_t)0xFF) goto read_long_end;
+		*name++ = fatlDir->Name2[i];
+	}
+	for (int i = 0; i < 4; i += 2) {
+		if (fatlDir->Name3[i] == (uint8_t)0xFF && fatlDir->Name3[i+1] == (uint8_t)0xFF) goto read_long_end;
+		*name++ = fatlDir->Name3[i];
+	}
+read_long_end:;
+		*name = '\0';
+		// debugf("got ori name %s and new name %s\n", st_ori_name, cur_name);
+		int add_length = name - cur_name;
+		while (*ori_name != '\0')ori_name++;
+		*(ori_name + add_length) = *ori_name;
+		while (ori_name != st_ori_name) {
+			ori_name--;
+			*(ori_name + add_length) = *ori_name;
+		}
+		for (name = cur_name; name - cur_name < add_length;) {
+			*ori_name++ = *name++;
+		}
+		// debugf("output name %s\n", st_ori_name);
+		return add_length;
+}
+
+// Overview:
+// input the first Fat directory entry pointer
+// (if long name file, then give the first long name entry)
+// and return the file name in buf
+// the next directory entry pointer will be stored at *nxtdir
+int get_full_name(struct FatShortDir *dir, unsigned char *buf, struct FatShortDir **nxtdir) {
+	if (dir->Name[0] == (unsigned char)FAT_DIR_ENTRY_FREE) {
+		return -E_FAT_READ_FREE_DIR;
+	}
+	if ((dir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+		if ((dir->Name[0] & FAT_LAST_LONG_ENTRY) != FAT_LAST_LONG_ENTRY) {
+			// input long name entry isn't the first one
+			return -E_FAT_BAD_DIR;
+		}
+		*buf = '\0';
+		struct FatLongDir *ldir;
+		for (ldir = (struct FatLongDir *)dir; (ldir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME; ldir++) {
+			read_and_cat_long_file_name(ldir, buf);
+		}
+		*nxtdir = (struct FatShortDir *)ldir + 1;
+	}
+	else {
+		unsigned char *tmpbuf_ptr = buf;
+		for (int i = 0; i < 11; i++) {
+			if (dir->Name[i] == '\0' || dir->Name[i] == ' ') continue;
+			if (i == 8) *tmpbuf_ptr++ = '.';
+			*tmpbuf_ptr++ = dir->Name[i];
+		}
+		*tmpbuf_ptr++ = '\0';
+		*nxtdir = dir + 1;
+	}
+	return 0;
+}
+
+// Overview:
+//  read a directory at one cluster "clus"
+//  and set the names as all names in the directory
+//  where names are separated by '\0' and double '\0' indicates end
+//  we assume that names is large enough to hold all names
+//  when clus == 0, this function will read root dir
+int read_dir(u_int clus, unsigned char *names, struct FatShortDir *dirs) {
+	unsigned char buf[FAT_MAX_FILE_SIZE];
+	try(read_fat_clusters(clus, buf, FAT_MAX_FILE_SIZE));
+	unsigned char *buf_ptr = buf, *name_ptr = names;
+	struct FatShortDir *fatDir = (struct FatShortDir *)buf_ptr;
+	while (fatDir->Name[0]) {
+		// empty file
+		if (fatDir->Name[0] == FAT_DIR_ENTRY_FREE) {
+			buf_ptr += sizeof(struct FatShortDir);
+			fatDir = (struct FatShortDir *)buf_ptr;
+			continue; 
+		}
+		try(get_full_name(fatDir, name_ptr, (struct FatShortDir **)&buf_ptr));
+		if (dirs) {
+			*dirs = *((struct FatShortDir *)buf_ptr - 1);
+			dirs++;
+		}
+		fatDir = (struct FatShortDir *)buf_ptr;
+		while (*name_ptr != '\0')name_ptr++;
+		name_ptr++;
+	}
+	*name_ptr++ = '\0';
+	// below is for debug
+	unsigned char *tmp_name_ptr = names;
+	debugf("read dir names: ");
+	while (*tmp_name_ptr != '\0' || *(tmp_name_ptr + 1) != '\0') {
+		// while (tmp_name_ptr != name_ptr) {
+		if (*tmp_name_ptr == '\0') debugf(" ");
+		else debugf("%c", *tmp_name_ptr);
+		tmp_name_ptr++;
+	}
+	debugf("\nsize = %u\n", name_ptr - names);
+	// above is for debug
+	return name_ptr - names;
+}
+
+void debug_list_dir_contents(unsigned char *names, struct FatShortDir *dirs) {
+	debugf("%20s %10s %10s %8s %6s %8s\n", "NAME", "SIZE", "CR_DATE", "CR_TIME", "ATTR", "CLUSNUM");
+	unsigned char buffer[100];
+	while (*names != '\0' || *(names + 1) != '\0') {
+		while (*names == '\0') names++;
+		unsigned char *bufp = buffer;
+		while (*names != '\0') {
+			*bufp++ = *names++;
+		}
+		*bufp = '\0';
+		debugf("%20s ", buffer);
+		if ((dirs->Attr & FAT_ATTR_DIRECTORY) == FAT_ATTR_DIRECTORY) {
+			debugf("%10s ", "   <dir>");
+		}
+		else {
+			debugf("%10u ", dirs->FileSize);
+		}
+		debug_print_date(dirs->CrtDate);
+		debugf(" ");
+		debug_print_time(dirs->CrtTime);
+		debugf(" 0x%04X %8u\n", dirs->Attr, dirs->FstClusLO);
+
+		dirs++;
+	}
+}
+
+int find_dir(char *file_name, unsigned char *buf_ptr, struct FatShortDir **dir) {
+	unsigned char name[BY2SECT];
+	struct FatShortDir *fatDir = (struct FatShortDir *)buf_ptr;
+	*dir = NULL;
+	while (fatDir->Name[0]) {
+		// empty file
+		if (fatDir->Name[0] == (unsigned char)FAT_DIR_ENTRY_FREE) {
+			buf_ptr += sizeof(struct FatShortDir);
+			fatDir = (struct FatShortDir *)buf_ptr;
+			continue; 
+		}
+		try(get_full_name(fatDir, name, (struct FatShortDir **)&buf_ptr));
+		if (strcmp((char *)name, file_name) == 0) {
+			*dir = fatDir;
+			return 0;
+		}
+		fatDir = (struct FatShortDir *)buf_ptr;
+	}
+	return 0;
+}
+
+int free_dir(uint32_t clus, char *file_name) {
+	unsigned char buf[FAT_MAX_FILE_SIZE], name[BY2SECT];
+	try(read_fat_clusters(clus, buf, FAT_MAX_FILE_SIZE));
+	struct FatShortDir *dir = NULL;
+	try(find_dir(file_name, buf, &dir));
+	if (!dir) {
+		return -E_FAT_NOT_FOUND;
+	}
+
+	debugf("Found dir name = %s\nDoing Free.\n", name);
+
+	while ((dir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+		dir->Name[0] = FAT_DIR_ENTRY_FREE;
+		dir++;
+	}
+	dir->Name[0] = FAT_DIR_ENTRY_FREE;
+	try(write_fat_clusters(clus, buf, FAT_MAX_FILE_SIZE));
+	try(free_fat_clusters(dir->FstClusLO));
+	return 0;
+}
+
+int encode_long_name(char *file_name, struct FatLongDir *ldirs) {
+	int is_writing_name = 1;
+	struct FatLongDir *stldirs = ldirs;
+	for (int n = 0; n < FAT_MAX_ENT_NUM; n++, ldirs++) {
+		if (!is_writing_name) {
+			break;
+		}
+		for (int i = 0; i < 10; i += 2) {
+			if (!is_writing_name) {
+				ldirs->Name1[i] = 0xFF;
+				ldirs->Name1[i+1] = 0xFF;
+			} else if (*file_name == '\0') {
+				is_writing_name = 0;
+				ldirs->Name1[i] = 0;
+				ldirs->Name1[i+1] = 0;
+			} else {
+				ldirs->Name1[i] = *file_name++;
+				ldirs->Name1[i+1] = 0;
+			}
+		}
+		for (int i = 0; i < 12; i += 2) {
+			if (!is_writing_name) {
+				ldirs->Name2[i] = 0xFF;
+				ldirs->Name2[i+1] = 0xFF;
+			} else if (*file_name == '\0') {
+				is_writing_name = 0;
+				ldirs->Name2[i] = 0;
+				ldirs->Name2[i+1] = 0;
+			} else {
+				ldirs->Name2[i] = *file_name++;
+				ldirs->Name2[i+1] = 0;
+			}
+		}
+		for (int i = 0; i < 4; i += 2) {
+			if (!is_writing_name) {
+				ldirs->Name3[i] = 0xFF;
+				ldirs->Name3[i+1] = 0xFF;
+			} else if (*file_name == '\0') {
+				is_writing_name = 0;
+				ldirs->Name3[i] = 0;
+				ldirs->Name3[i+1] = 0;
+			} else {
+				ldirs->Name3[i] = *file_name++;
+				ldirs->Name3[i+1] = 0;
+			}
+		}
+	}
+	return ldirs - stldirs;
+}
+
+int encode_short_name(struct FatShortDir *sdir, char *file_name) {
+	u_int name_len = 0, ext_len = 0;
+	char *fp = file_name;
+	while (*fp != '.' && *fp != '\0') fp++;
+	name_len = fp - file_name;
+	if (*fp == '.') {
+		while (*fp != '\0') fp++;
+		ext_len = (fp - file_name) - name_len - 1;
+	}
+	for (int i = 0; i < 11; i++) sdir->Name[i] = 0;
+	if (name_len > 8 || ext_len > 3) {
+		name_len =  name_len > 6 ? 6 : name_len;
+		ext_len = ext_len > 3 ? 3 : ext_len;
+		sdir->Name[name_len] = '~';
+		sdir->Name[name_len+1] = '1';
+	}
+	for (int i = 0; i < 8; i++) {
+		if (!sdir->Name[i]) sdir->Name[i] = i < name_len ? file_name[i] : ' ';
+	}
+	for (int i = 0; i < 3; i++) {
+		if (!sdir->Name[i]) sdir->Name[i+8] = i < ext_len ? file_name[name_len + 1 + i] : ' ';
+	}
+	return 0;
+}
+
+int alloc_and_write_dir_entry() {
+	return 0;
+}
+
+int create_file(uint32_t clus, char *file_name, char *buf, uint32_t size, unsigned char Attr) {
+	if (Attr & ~(FAT_ATTR_READ_ONLY | FAT_ATTR_HIDDEN | FAT_ATTR_SYSTEM)) {
+		return -E_FAT_BAD_ATTR;
+	}
+	uint32_t clus_cnt = (size + fatBPB.BytsPerSec * fatBPB.SecPerClus - 1) / (fatBPB.BytsPerSec * fatBPB.SecPerClus);
+	uint32_t name_len = strlen(file_name);
+	if (name_len / FAT_LONG_NAME_LEN > FAT_MAX_ENT_NUM) {
+		return -E_FAT_NAME_TOO_LONG;
+	}
+	struct FatShortDir sdir;
+	try(encode_short_name(&sdir, file_name));
+	sdir.Attr = Attr;
+	sdir.NTRes = 0;
+	
+	
+	struct FatLongDir ldirs[FAT_MAX_ENT_NUM];
+	uint32_t ldir_cnt = encode_long_name(file_name, ldirs);
+
 	return 0;
 }

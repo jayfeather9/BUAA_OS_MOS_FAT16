@@ -6,9 +6,24 @@
 #include <lib.h>
 #include <mmu.h>
 
+// set as double root size for buffer size
+// not FAT max size, but this file system max size
+#define FAT_MAX_FILE_SIZE 32768
+// similar as above, set as SecPerClus=16
+#define FAT_MAX_CLUS_SIZE 8192
+#define FAT_MAX_ENT_NUM 16
+
+#define FAT_LONG_NAME_LEN 13
+
 #define E_FAT_BAD_CLUSTER 0x1000
 #define E_FAT_CLUSTER_FULL 0x1001
 #define E_FAT_DIFF 0x1002
+#define E_FAT_ACCESS_FREE_CLUSTER 0x1003
+#define E_FAT_BAD_ATTR 0x1004
+#define E_FAT_BAD_DIR 0x1005
+#define E_FAT_READ_FREE_DIR 0x1006
+#define E_FAT_NOT_FOUND 0x1007
+#define E_FAT_NAME_TOO_LONG 0x1008
 
 struct FatBPB {
 	unsigned char jmpBoot[3];
@@ -56,6 +71,10 @@ struct FatDisk {
 
 // upper 2 bits of attr are reserved and should be 0
 
+#define FAT_LAST_LONG_ENTRY 0x40
+
+#define FAT_DIR_ENTRY_FREE 0xE5
+
 struct FatShortDir {
 	unsigned char Name[11];
 	uint8_t Attr;
@@ -93,16 +112,22 @@ int get_fat_entry(uint32_t clus, uint32_t *pentry_val);
 int set_fat_entry(uint32_t clus, uint32_t entry_val);
 void debug_print_fat_entry(uint32_t clus);
 int read_fat_cluster(uint32_t clus, unsigned char *buf);
-int write_fat_cluster(uint32_t clus, unsigned char *buf);
+int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts);
+int read_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts);
+int write_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts);
 void debug_print_cluster_data(uint32_t clus);
 int alloc_fat_clusters(uint32_t *pclus, uint32_t count);
 int expand_fat_clusters(uint32_t *pclus, uint32_t count);
 int free_fat_clusters(uint32_t clus);
 void debug_print_short_dir(struct FatShortDir *dir);
 void debug_print_long_dir(struct FatLongDir *dir);
-int read_dir();
+int debug_print_file_as_dir_entry(uint32_t clus);
 unsigned char generate_long_file_check_sum(unsigned char *pFcbName);
-
+int get_full_name(struct FatShortDir *dir, unsigned char *buf, struct FatShortDir **nxtdir);
+int read_dir(u_int clus, unsigned char *names, struct FatShortDir *dirs);
+void debug_list_dir_contents(unsigned char *names, struct FatShortDir *dirs);
+int free_dir(uint32_t clus, char *file_name);
+int create_file(uint32_t clus, char *file_name, char *buf, uint32_t size, unsigned char Attr);
 
 #endif
 
