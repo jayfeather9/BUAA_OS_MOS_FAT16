@@ -24,6 +24,8 @@
 #define E_FAT_READ_FREE_DIR 0x1006
 #define E_FAT_NOT_FOUND 0x1007
 #define E_FAT_NAME_TOO_LONG 0x1008
+#define E_FAT_DIR_FULL 0x1009
+#define E_FAT_NAME_DUPLICATED 0x100A
 
 struct FatBPB {
 	unsigned char jmpBoot[3];
@@ -116,6 +118,7 @@ int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts);
 int read_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts);
 int write_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts);
 void debug_print_cluster_data(uint32_t clus);
+int query_fat_clusters(uint32_t st_clus, uint32_t *size);
 int alloc_fat_clusters(uint32_t *pclus, uint32_t count);
 int expand_fat_clusters(uint32_t *pclus, uint32_t count);
 int free_fat_clusters(uint32_t clus);
@@ -126,8 +129,8 @@ unsigned char generate_long_file_check_sum(unsigned char *pFcbName);
 int get_full_name(struct FatShortDir *dir, unsigned char *buf, struct FatShortDir **nxtdir);
 int read_dir(u_int clus, unsigned char *names, struct FatShortDir *dirs);
 void debug_list_dir_contents(unsigned char *names, struct FatShortDir *dirs);
-int free_dir(uint32_t clus, char *file_name);
-int create_file(uint32_t clus, char *file_name, char *buf, uint32_t size, unsigned char Attr);
+int free_dir(struct FatShortDir *pdir, unsigned char *file_name);
+int create_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t size, unsigned char Attr);
 
 #endif
 
