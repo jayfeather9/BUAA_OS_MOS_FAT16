@@ -20,9 +20,13 @@ int main() {
 	
 	unsigned char buf[32767];
 	struct FatShortDir dirs[32];
-	read_dir(0, buf, dirs);
-	debug_print_file_as_dir_entry(0);
+	read_dir(2, buf, dirs);
+	debug_print_file_as_dir_entry(2);
 	debug_list_dir_contents(buf, dirs);
+	// u_int sec, us, yr, mnth, dy, hr, mn, s;
+	// sec = get_time(&us);
+	// get_all_time(sec, &yr, &mnth, &dy, &hr, &mn, &s);
+	// debugf("%u %u %u %u %u %u %u %u\n", sec, us, yr, mnth, dy, hr, mn, s);
 	// debugf("freeing rt val = %d\n", free_dir(2, "FS.C"));
 	// read_dir(2, buf, dirs);
 	// debug_list_dir_contents(buf, dirs);

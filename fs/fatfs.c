@@ -7,6 +7,7 @@
 
 struct FatBPB fatBPB;
 struct FatDisk fatDisk;
+unsigned char zero_buffer[FAT_MAX_CLUS_SIZE];
 
 struct FatBPB *get_fat_BPB() {
 	return &fatBPB;
@@ -38,6 +39,13 @@ void write_little_endian(unsigned char **buf, int len, uint32_t val) {
 		val >>= 8;
 	}
 	(*buf) += len;
+}
+
+u_int get_fat_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute, uint32_t second, uint32_t us, uint8_t *CrtTimeTenth, uint16_t *CrtTime, uint16_t *CrtDate) {
+    *CrtTimeTenth = us / 10000 + (second % 2) * 100;
+    *CrtTime = (hour << 11) + (minute << 5) + (second >> 1);
+    *CrtDate = ((year - 1980) << 9) + (month << 5) + day;
+    return 0;
 }
 
 void fat_init() {
@@ -76,6 +84,8 @@ void fat_init() {
 	fatDisk.DataSec = fatDisk.TotSec - (fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors);
 	fatDisk.CountofClusters = fatDisk.DataSec / fatBPB.SecPerClus;
 	fatDisk.FirstRootDirSecNum = fatBPB.RsvdSecCnt + (fatBPB.NumFATs * fatDisk.FATSz);
+
+	memset(zero_buffer, 0, FAT_MAX_CLUS_SIZE);
 }
 
 void debug_print_fatBPB() {
@@ -221,7 +231,7 @@ int read_fat_cluster(uint32_t clus, unsigned char *buf) {
 
 int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
 	if (clus == 0) {
-		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		ide_write(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
 		return 0;
 	}
 	if (is_bad_cluster(clus)) {
@@ -231,6 +241,9 @@ int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
 		return -E_FAT_ACCESS_FREE_CLUSTER;
 	}
 	unsigned char tmp_buf[FAT_MAX_CLUS_SIZE];
+	if (nbyts > fatBPB.SecPerClus * fatBPB.BytsPerSec) {
+		nbyts = fatBPB.SecPerClus * fatBPB.BytsPerSec;
+	}
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.SecPerClus;
 	ide_read(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
 	for (int i = 0; i < nbyts; i++) tmp_buf[i] = buf[i];
@@ -312,6 +325,7 @@ int alloc_fat_cluster(uint32_t *pclus) {
 		if (entry_val == 0) {
 			*pclus = clus;
 			try(set_fat_entry(clus, 0xFFFF));
+			try(write_fat_cluster(clus, zero_buffer, FAT_MAX_CLUS_SIZE));
 			return 0;
 		}
 	}
@@ -319,6 +333,10 @@ int alloc_fat_cluster(uint32_t *pclus) {
 }
 
 int alloc_fat_clusters(uint32_t *pclus, uint32_t count) {
+	if (count == 0) {
+		*pclus = 0;
+		return 0;
+	}
 	uint32_t prev_clus, clus;
 	try(alloc_fat_cluster(&prev_clus));
 	*pclus = prev_clus;
@@ -689,7 +707,7 @@ int encode_short_name(struct FatShortDir *sdir, char *file_name) {
 	return 0;
 }
 
-int alloc_and_write_dir_entry() {
+int alloc_and_write_dir_entry(struct FatShortDir *sdir, struct FatLongDir *ldirs, uint32_t ldir_cnt) {
 	return 0;
 }
 
@@ -706,10 +724,30 @@ int create_file(uint32_t clus, char *file_name, char *buf, uint32_t size, unsign
 	try(encode_short_name(&sdir, file_name));
 	sdir.Attr = Attr;
 	sdir.NTRes = 0;
-	
-	
+	uint32_t year, month, date, hour, minute, second, timestamp, timeus;
+	timestamp = get_time(&timeus);
+	try(get_all_time(timestamp, &year, &month, &date, &hour, &minute, &second));
+	hour += 8; // This is UTC, we need CST
+	get_fat_time(year, month, date, hour, minute, second, timeus, &sdir.CrtTimeTenth, &sdir.CrtTime, &sdir.CrtDate);
+	sdir.LstAccDate = sdir.CrtDate;
+	sdir.FstClusHI = 0;
+	sdir.WrtTime = sdir.CrtTime;
+	sdir.WrtDate = sdir.CrtDate;
+	uint32_t alloc_clus;
+	try(alloc_fat_clusters(&alloc_clus, clus_cnt));
+	sdir.FstClusLO = (uint16_t)alloc_clus;
+	sdir.FileSize = size;
 	struct FatLongDir ldirs[FAT_MAX_ENT_NUM];
 	uint32_t ldir_cnt = encode_long_name(file_name, ldirs);
-
+	uint8_t check_sum = generate_long_file_check_sum(sdir.Name);
+	for (int i = 0; i < ldir_cnt; i++) {
+		ldirs[i].Attr = FAT_ATTR_LONG_NAME;
+		ldirs[i].Chksum = check_sum;
+		ldirs[i].FstClusLO = 0;
+		ldirs[i].Type = 0;
+		ldirs[i].Ord = i == ldir_cnt - 1 ? ((i + 1) | FAT_LAST_LONG_ENTRY) : i + 1;
+	}
+	try(alloc_and_write_dir_entry(&sdir, ldirs, ldir_cnt));
+	try(write_fat_clusters(alloc_clus, buf, size));
 	return 0;
 }
