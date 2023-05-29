@@ -1,16 +1,12 @@
 #ifndef _FAT_H_
 #define _FAT_H_
 
-#include <stdint.h>
-#include <fs.h>
-#include <lib.h>
-#include <mmu.h>
-
 // set as double root size for buffer size
 // not FAT max size, but this file system max size
 #define FAT_MAX_FILE_SIZE 32768
 // similar as above, set as SecPerClus=16
 #define FAT_MAX_CLUS_SIZE 8192
+#define FAT_MAX_SPACE_SIZE FAT_MAX_CLUS_SIZE
 #define FAT_MAX_ENT_NUM 16
 #define FAT_MAX_NAME_LEN 512
 
@@ -29,6 +25,8 @@
 #define E_FAT_NAME_DUPLICATED 0x100A
 #define E_FAT_MAX_OPEN 0x100B
 #define E_FAT_INVAL 0x100C
+#define E_FAT_VA_FULL 0x100D
+
 
 struct FatBPB {
 	unsigned char jmpBoot[3];
@@ -106,8 +104,24 @@ struct FatLongDir {
 	uint8_t Name3[4];
 };
 
+#define FAT_MIN_VA 0x10000000
+#define FAT_MAX_VA 0x50000000
+#define FAT_VA_LEN FAT_MAX_VA - FAT_MIN_VA
+
+struct FatSpace {
+	uint32_t st_va;
+	uint32_t size;
+	uint32_t clus;
+	struct FatSpace *nxt, *prev;
+};
+
 struct FatBPB *get_fat_BPB();
 struct FatDisk *get_fat_disk();
+
+void debug_print_fspace();
+int insert_space(uint32_t st_va, uint32_t size);
+int alloc_fat_file_space(uint32_t clus, uint32_t bysize, uint32_t *va);
+int free_clus(uint32_t clus);
 
 void fat_init();
 void debug_print_fatBPB();
@@ -138,6 +152,8 @@ int create_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned cha
 int read_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t read_len);
 int write_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t write_len);
 int walk_path_fat(unsigned char *path, struct FatShortDir *pdir, struct FatShortDir *pfile);
+int fat_map_file(struct FatShortDir *f, uint32_t *va, uint32_t alloc);
+int fat_get_va(struct FatShortDir *f, uint32_t pageno, uint32_t *va);
 
 #endif
 

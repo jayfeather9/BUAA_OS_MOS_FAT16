@@ -1,1 +1,1 @@
-init-envs := main
+init-envs := main /fs_serv /fs_fatserv

@@ -1,6 +1,7 @@
 #ifndef _FSREQ_H_
 #define _FSREQ_H_
 
+#include "../../fs/fat.h"
 #include <fs.h>
 #include <types.h>
 
@@ -13,6 +14,7 @@
 #define FSREQ_DIRTY 5
 #define FSREQ_REMOVE 6
 #define FSREQ_SYNC 7
+#define FSREQ_FATINIT 8
 
 struct Fsreq_open {
 	char req_path[MAXPATHLEN];
@@ -22,6 +24,12 @@ struct Fsreq_open {
 struct Fsreq_map {
 	int req_fileid;
 	u_int req_offset;
+};
+
+struct Fsreq_fatmap {
+	int req_fileid;
+	u_int req_pageno;
+	struct FatShortDir req_f;
 };
 
 struct Fsreq_set_size {
@@ -40,6 +48,10 @@ struct Fsreq_dirty {
 
 struct Fsreq_remove {
 	char req_path[MAXPATHLEN];
+};
+
+struct Fsreq_fatinit {
+	u_int magic;
 };
 
 #endif

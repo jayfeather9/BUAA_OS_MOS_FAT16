@@ -2,12 +2,14 @@
 #define _USER_FD_H_ 1
 
 #include <fs.h>
+#include "../../fs/fat.h"
 
 #define debug 0
 
 #define MAXFD 32
 #define FILEBASE 0x60000000
 #define FDTABLE (FILEBASE - PDMAP)
+#define FATINFOBASE (FDTABLE - PDMAP)
 
 #define INDEX2FD(i) (FDTABLE + (i)*BY2PG)
 #define INDEX2DATA(i) (FILEBASE + (i)*PDMAP)

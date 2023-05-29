@@ -11,6 +11,9 @@ unsigned char zero_buffer[FAT_MAX_CLUS_SIZE];
 
 struct FatShortDir FakeRoot;
 
+struct FatSpace fat_spaces[FAT_MAX_SPACE_SIZE];
+struct FatSpace fat_space_head, fat_space_tail;
+
 struct FatBPB *get_fat_BPB() {
 	return &fatBPB;
 }
@@ -48,6 +51,114 @@ u_int get_fat_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, u
     *CrtTime = (hour << 11) + (minute << 5) + (second >> 1);
     *CrtDate = ((year - 1980) << 9) + (month << 5) + day;
     return 0;
+}
+
+struct FatSpace *alloc_fat_space(uint32_t st_va, uint32_t size, uint32_t clus) {
+	for (int i = 0; i < FAT_MAX_SPACE_SIZE; i++) {
+		if (fat_spaces[i].st_va == 0) {
+			fat_spaces[i].st_va = st_va;
+			fat_spaces[i].size = size;
+			fat_spaces[i].clus = clus;
+			return &fat_spaces[i];
+		}
+	}
+	return NULL;
+}
+
+void insert_head_fat_space_list(uint32_t st_va, uint32_t size, uint32_t clus) {
+	struct FatSpace *fsp = alloc_fat_space(st_va, size, clus);
+	fsp->prev = &fat_space_head;
+	fsp->nxt = fat_space_head.nxt;
+	fat_space_head.nxt->prev = fsp;
+	fat_space_head.nxt = fsp;
+	return;
+}
+
+void remove_fat_space_list(struct FatSpace *fsp) {
+	fsp->prev->nxt = fsp->nxt;
+	fsp->nxt->prev = fsp->prev;
+	return;
+}
+
+int is_clus_mapped(uint32_t clus, uint32_t *va) {
+	struct FatSpace *fspace;
+	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
+		if (fspace->clus == clus) {
+			if (va) {
+				*va = fspace->st_va;
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int insert_space(uint32_t st_va, uint32_t size) {
+	debugf("inserting space [0x%X, 0x%X]\n", st_va, st_va + size);
+	int r;
+	struct FatSpace *fspace;
+	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
+		if (fspace->st_va + fspace->size == st_va && fspace->clus == 0) {
+			remove_fat_space_list(fspace);
+			r = insert_space(fspace->st_va, fspace->size + size);
+			fspace->st_va = 0;
+			return r;
+		}
+	}
+	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
+		if (fspace->st_va == st_va + size && fspace->clus == 0) {
+			remove_fat_space_list(fspace);
+			r = insert_space(st_va, fspace->size + size);
+			fspace->st_va = 0;
+			return r;
+		}
+	}
+	insert_head_fat_space_list(st_va, size, 0);
+	return 0;
+}
+
+int free_clus(uint32_t clus) {
+	int r;
+	struct FatSpace *fspace;
+	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
+		if (fspace->clus == clus) {
+			remove_fat_space_list(fspace);
+			r = insert_space(fspace->st_va, fspace->size);
+			fspace->st_va = 0;
+			return r;
+		}
+	}
+	return -E_FAT_NOT_FOUND;
+}
+
+void debug_print_fspace() {
+	struct FatSpace *fspace;
+	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
+		debugf("[0x%X, 0x%X] clus = %d\n", fspace->st_va, fspace->st_va + fspace->size, fspace->clus);
+	}
+}
+
+int alloc_fat_file_space(uint32_t clus, uint32_t bysize, uint32_t *va) {
+	bysize = ROUND(bysize, BY2PG);
+	if (is_clus_mapped(clus, va)) {
+		return 0;
+	}
+	struct FatSpace *fspace;
+	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
+		if (fspace->clus == 0 && fspace->size >= bysize) {
+			if (va) {
+				*va = fspace->st_va;
+			}
+			remove_fat_space_list(fspace);
+			insert_head_fat_space_list(fspace->st_va, bysize, clus);
+			if (bysize < fspace->size) {
+				insert_space(fspace->st_va + bysize, fspace->size - bysize); 
+			}
+			fspace->st_va = 0;
+			return 0;
+		}
+	}
+	return -E_FAT_VA_FULL;
 }
 
 void fat_init() {
@@ -91,6 +202,14 @@ void fat_init() {
 
 	FakeRoot.Attr = FAT_ATTR_DIRECTORY;
 	FakeRoot.FstClusLO = 0;
+
+	for (int i = 0; i < FAT_MAX_SPACE_SIZE; i++) {
+		fat_spaces[i].st_va = 0;
+	}
+
+	fat_space_head.nxt = &fat_space_tail;
+	fat_space_tail.prev = &fat_space_head;
+	insert_head_fat_space_list(FAT_MIN_VA, FAT_VA_LEN, 0);
 }
 
 void debug_print_fatBPB() {
@@ -656,21 +775,25 @@ int find_dir(unsigned char *file_name, unsigned char *buf_ptr, struct FatShortDi
 
 int free_dir(struct FatShortDir *pdir, unsigned char *file_name) {
 	uint32_t clus = pdir->FstClusLO;
-	unsigned char buf[FAT_MAX_FILE_SIZE], name[BY2SECT];
+
+	if (is_clus_mapped(clus, 0)) {
+		try(free_clus(clus));
+	}
+
+	unsigned char buf[FAT_MAX_FILE_SIZE];
 	try(read_fat_clusters(clus, buf, FAT_MAX_FILE_SIZE));
-	struct FatShortDir *dir = NULL;
+	struct FatShortDir *dir = NULL, *tmpdir;
 	try(find_dir(file_name, buf, &dir));
 	if (!dir) {
 		return -E_FAT_NOT_FOUND;
 	}
 
-	debugf("Found dir name = %s\nDoing Free.\n", name);
-
-	while ((dir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
-		dir->Name[0] = FAT_DIR_ENTRY_FREE;
-		dir++;
-	}
 	dir->Name[0] = FAT_DIR_ENTRY_FREE;
+	tmpdir = dir - 1;
+	while ((tmpdir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+		tmpdir->Name[0] = FAT_DIR_ENTRY_FREE;
+		tmpdir--;
+	}
 	try(write_fat_clusters(clus, buf, FAT_MAX_FILE_SIZE));
 	try(free_fat_clusters(dir->FstClusLO));
 	return 0;
@@ -1009,5 +1132,36 @@ int walk_path_fat(unsigned char *path, struct FatShortDir *pdir, struct FatShort
 	}
 
 	*pfile = file;
+	return 0;
+}
+
+// Overview:
+// find the mapped va of f, if alloc is set and f isn't mapped, alloc it.
+int fat_map_file(struct FatShortDir *f, uint32_t *va, uint32_t alloc) {
+	if (is_clus_mapped(f->FstClusLO, va)) {
+		return 0;
+	}
+	if (!alloc) {
+		return -E_FAT_NOT_FOUND;
+	}
+	int r;
+	if ((r = alloc_fat_file_space(f->FstClusLO, f->FileSize, va)) < 0) {
+		return r;
+	}
+	return 0;
+}
+
+int fat_get_va(struct FatShortDir *f, uint32_t pageno, uint32_t *va) {
+	if (pageno >= (f->FileSize + BY2PG - 1) / BY2PG) {
+		return -E_FAT_INVAL;
+	}
+	int r;
+	if ((r = fat_map_file(f, va, 1)) < 0) {
+		return r;
+	}
+	if ((r = read_fat_clusters(f->FstClusLO, (unsigned char *)(*va), FAT_MAX_FILE_SIZE)) < 0) {
+		return r;
+	}
+	*va += pageno * BY2PG;
 	return 0;
 }

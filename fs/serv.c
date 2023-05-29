@@ -249,7 +249,7 @@ void serve(void) {
 			break;
 
 		default:
-			debugf("Invalid request code %d from %08x\n", whom, req);
+			debugf("FILESERV: Invalid request code %d from %08x\n", whom, req);
 			break;
 		}
 

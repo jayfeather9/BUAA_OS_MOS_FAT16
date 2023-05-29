@@ -105,6 +105,19 @@ int fsipc_remove(const char *);
 int fsipc_sync(void);
 int fsipc_incref(u_int);
 
+// fatipc.c
+int fatipc_open(const char *, u_int, struct Fd *);
+int fatipc_map(u_int, u_int, void *);
+int fatipc_set_size(u_int, u_int);
+int fatipc_close(u_int);
+int fatipc_dirty(u_int, u_int);
+int fatipc_remove(const char *);
+int fatipc_sync(void);
+int fatipc_fatinit(struct FatBPB *buf);
+
+// fat.c
+int fat_user_init();
+
 // fd.c
 int close(int fd);
 int read(int fd, void *buf, u_int nbytes);
