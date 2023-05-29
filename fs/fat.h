@@ -12,6 +12,7 @@
 // similar as above, set as SecPerClus=16
 #define FAT_MAX_CLUS_SIZE 8192
 #define FAT_MAX_ENT_NUM 16
+#define FAT_MAX_NAME_LEN 512
 
 #define FAT_LONG_NAME_LEN 13
 
@@ -26,6 +27,8 @@
 #define E_FAT_NAME_TOO_LONG 0x1008
 #define E_FAT_DIR_FULL 0x1009
 #define E_FAT_NAME_DUPLICATED 0x100A
+#define E_FAT_MAX_OPEN 0x100B
+#define E_FAT_INVAL 0x100C
 
 struct FatBPB {
 	unsigned char jmpBoot[3];

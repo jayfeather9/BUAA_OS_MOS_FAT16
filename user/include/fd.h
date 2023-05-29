@@ -53,6 +53,12 @@ struct Filefd {
 	struct File f_file;
 };
 
+struct FatFilefd {
+	struct Fd f_fd;
+	u_int f_fileid;
+	struct FatShortDir f_dir_entry;
+};
+
 int fd_alloc(struct Fd **fd);
 int fd_lookup(int fdnum, struct Fd **fd);
 void *fd2data(struct Fd *);
@@ -61,6 +67,7 @@ int dev_lookup(int dev_id, struct Dev **dev);
 int num2fd(int fd);
 extern struct Dev devcons;
 extern struct Dev devfile;
+extern struct Dev devfat;
 extern struct Dev devpipe;
 
 #endif
