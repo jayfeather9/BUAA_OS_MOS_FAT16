@@ -9,56 +9,19 @@ int main() {
 	fat_init();
 	struct FatDisk *fdk = get_fat_disk();
 	struct FatBPB *fbpb = get_fat_BPB();
-	debug_print_fatsec(fdk->FirstRootDirSecNum);
 
 	debug_print_fatBPB();
 	debug_print_fatDisk();
 
-	// debug_print_fatsec(fbpb->RsvdSecCnt);
-
-	// read_root();
-	
-	unsigned char buf[32767];
-	struct FatShortDir dirs[32], pdir;
-	read_dir(0, buf, dirs);
-	pdir = dirs[9];
-	debugf("looking into dir name = ");
-	for (int i = 0; i < 11; i++) debugf("%c", pdir.Name[i]);
-	debugf("\n");	
-	// debug_print_file_as_dir_entry(2);
+	unsigned char *path = "fs/fs.c";
+	struct FatShortDir pdir, pfile;
+	debugf("walking with rt val = %d\n", walk_path_fat(path, &pdir, &pfile));
+	unsigned char buf[FAT_MAX_FILE_SIZE];
+	struct FatShortDir dirs[32];
+	debugf("clus = %d %d\n", pdir.FstClusLO, pfile.FstClusLO);
+	debugf("name = %s %s\n", pdir.Name, pfile.Name);
+	debugf("reading with rt val = %d\n", read_dir(pdir.FstClusLO, buf, dirs));
 	debug_list_dir_contents(buf, dirs);
-	read_dir(pdir.FstClusLO, buf, dirs);
-	debug_list_dir_contents(buf, dirs);
-	unsigned char content[50] = "hello\nHi!\n";
-	debugf("creating file with rt val = %d\n", create_file(&pdir, "testfile.txt", content, 50, 0));
-	debugf("creating file with rt val = %d\n", create_file(&pdir, "good.py", content, 50, 0));
-	debugf("creating file with rt val = %d\n", create_file(&pdir, "bad.txtovo", content, 50, 0));
-	debugf("creating file with rt val = %d\n", create_file(&pdir, "badbbbbbbbbbbbbc.txt", content, 50, 0));
-	debugf("creating file with rt val = %d\n", create_file(&pdir, "badbbbbbbbbbbbbc.txt", content, 50, 0));
-	debugf("creating file with rt val = %d\n", create_file(&pdir, "badbbbbbbbbbbbbc.txt", content, 50, 0));
-	read_dir(pdir.FstClusLO, buf, dirs);
-	debug_list_dir_contents(buf, dirs);
-	// debug_print_file_as_dir_entry(pdir.FstClusLO);
-	// u_int sec, us, yr, mnth, dy, hr, mn, s;
-	// sec = get_time(&us);
-	// get_all_time(sec, &yr, &mnth, &dy, &hr, &mn, &s);
-	// debugf("%u %u %u %u %u %u %u %u\n", sec, us, yr, mnth, dy, hr, mn, s);
-	// debugf("freeing rt val = %d\n", free_dir(2, "FS.C"));
-	// read_dir(2, buf, dirs);
-	// debug_list_dir_contents(buf, dirs);
-
-	// read & write test
-	/*
-	read_fat_clusters(1614, buf, 100);
-	unsigned char *bufp = buf;
-	for (int i = 0; i < 100; i++) debugf("%c", *bufp++);
-	debugf("\n\n");
-	write_fat_clusters(1614, "OHHHHHHHHH", 11);
-	read_fat_clusters(1614, buf, 100);
-	bufp = buf;
-	for (int i = 0; i < 100; i++) debugf("%c", *bufp++);
-	debugf("\n\n");
-	*/
 
 	return 0;
 }

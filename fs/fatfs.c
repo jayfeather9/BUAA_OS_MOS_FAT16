@@ -9,6 +9,8 @@ struct FatBPB fatBPB;
 struct FatDisk fatDisk;
 unsigned char zero_buffer[FAT_MAX_CLUS_SIZE];
 
+struct FatShortDir FakeRoot;
+
 struct FatBPB *get_fat_BPB() {
 	return &fatBPB;
 }
@@ -86,6 +88,9 @@ void fat_init() {
 	fatDisk.FirstRootDirSecNum = fatBPB.RsvdSecCnt + (fatBPB.NumFATs * fatDisk.FATSz);
 
 	memset(zero_buffer, 0, FAT_MAX_CLUS_SIZE);
+
+	FakeRoot.Attr = FAT_ATTR_DIRECTORY;
+	FakeRoot.FstClusLO = 0;
 }
 
 void debug_print_fatBPB() {
@@ -213,9 +218,12 @@ void debug_print_fat_entry(uint32_t clus) {
 	debugf("fat entry of cluster %u: 0x%04X\n", clus, entry_val);
 }
 
-int read_fat_cluster(uint32_t clus, unsigned char *buf) {
+int read_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	unsigned char tmp_buf[FAT_MAX_FILE_SIZE];
 	if (clus == 0) {
-		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		nbyts = nbyts > fatDisk.RootDirSectors * fatBPB.BytsPerSec ? fatDisk.RootDirSectors * fatBPB.BytsPerSec : nbyts;
+		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, tmp_buf, fatDisk.RootDirSectors);
+		for (int i = 0; i < nbyts; i++) buf[i] = tmp_buf[i];
 		return 0;
 	}
 	if (is_bad_cluster(clus)) {
@@ -225,13 +233,19 @@ int read_fat_cluster(uint32_t clus, unsigned char *buf) {
 		return -E_FAT_ACCESS_FREE_CLUSTER;
 	}
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.SecPerClus;
-	ide_read(DISKNO, fat_sec, buf, fatBPB.SecPerClus);
+	ide_read(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
+	nbyts = nbyts > fatBPB.SecPerClus * fatBPB.BytsPerSec ? fatBPB.SecPerClus * fatBPB.BytsPerSec : nbyts;
+	for (int i = 0; i < nbyts; i++) buf[i] = tmp_buf[i];
 	return 0;
 }
 
 int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	unsigned char tmp_buf[FAT_MAX_FILE_SIZE];
 	if (clus == 0) {
-		ide_write(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		nbyts = nbyts > fatDisk.RootDirSectors * fatBPB.BytsPerSec ? fatDisk.RootDirSectors * fatBPB.BytsPerSec : nbyts;
+		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, tmp_buf, fatDisk.RootDirSectors);
+		for (int i = 0; i < nbyts; i++) tmp_buf[i] = buf[i];
+		ide_write(DISKNO, fatDisk.FirstRootDirSecNum, tmp_buf, fatDisk.RootDirSectors);
 		return 0;
 	}
 	if (is_bad_cluster(clus)) {
@@ -240,12 +254,12 @@ int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
 	if (is_free_cluster(clus)) {
 		return -E_FAT_ACCESS_FREE_CLUSTER;
 	}
-	unsigned char tmp_buf[FAT_MAX_CLUS_SIZE];
 	if (nbyts > fatBPB.SecPerClus * fatBPB.BytsPerSec) {
 		nbyts = fatBPB.SecPerClus * fatBPB.BytsPerSec;
 	}
 	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.SecPerClus;
 	ide_read(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
+	nbyts = nbyts > fatBPB.SecPerClus * fatBPB.BytsPerSec ? fatBPB.SecPerClus * fatBPB.BytsPerSec : nbyts;
 	for (int i = 0; i < nbyts; i++) tmp_buf[i] = buf[i];
 	ide_write(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
 	return 0;
@@ -253,17 +267,19 @@ int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
 
 int read_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
 	if (clus == 0) {
-		return read_fat_cluster(0, buf);
+		return read_fat_cluster(0, buf, nbyts);
 	}
 	uint32_t prev_clus, entry_val = 0x0, finished_byts = 0;
 	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
 		try(get_fat_entry(prev_clus, &entry_val));
-		// debugf("trying reading cluster %u\n", prev_clus);
-		try(read_fat_cluster(prev_clus, buf));
+		//try(read_fat_cluster(prev_clus, buf));
 		finished_byts += fatBPB.BytsPerSec * fatBPB.SecPerClus;
-		// debugf("finished byts %u total %u\n", finished_byts, nbyts);
+		if (finished_byts < nbyts)
+			try(read_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus));
+		else
+			try(read_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus - (finished_byts - nbyts)));
 		if (finished_byts >= nbyts)break;
-		buf += finished_byts;
+		buf += fatBPB.BytsPerSec * fatBPB.SecPerClus;
 	}
 	return 0;
 }
@@ -281,14 +297,14 @@ int write_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
 		else
 			try(write_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus - (finished_byts - nbyts)));
 		if (finished_byts >= nbyts)break;
-		buf += finished_byts;
+		buf += fatBPB.BytsPerSec * fatBPB.SecPerClus;
 	}
 	return 0;
 }
 
 void debug_print_cluster_data(uint32_t clus) {
 	unsigned char buf[16384];
-	read_fat_cluster(clus, buf);
+	read_fat_cluster(clus, buf, FAT_MAX_CLUS_SIZE);
 	debugf("========= printing cluster %u =========\n", clus);
 	for (int i = 0; i < 32; i++) {
 		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
@@ -564,7 +580,6 @@ int read_dir(u_int clus, unsigned char *names, struct FatShortDir *dirs) {
 	unsigned char *tmp_name_ptr = names;
 	debugf("read dir names: ");
 	while (*tmp_name_ptr != '\0' || *(tmp_name_ptr + 1) != '\0') {
-		// while (tmp_name_ptr != name_ptr) {
 		if (*tmp_name_ptr == '\0') debugf(" ");
 		else debugf("%c", *tmp_name_ptr);
 		tmp_name_ptr++;
@@ -575,7 +590,7 @@ int read_dir(u_int clus, unsigned char *names, struct FatShortDir *dirs) {
 }
 
 void debug_list_dir_contents(unsigned char *names, struct FatShortDir *dirs) {
-	debugf("%20s %10s %10s %8s %6s %8s\n", "NAME", "SIZE", "CR_DATE", "CR_TIME", "ATTR", "CLUSNUM");
+	debugf("%20s %10s %10s %8s %10s %8s %10s %6s %8s\n", "NAME", "SIZE", "CR_DATE", "CR_TIME", "WR_DATE", "WR_TIME", "LAC_DATE", "ATTR", "CLUSNUM");
 	unsigned char buffer[100];
 	while (*names != '\0' || *(names + 1) != '\0') {
 		while (*names == '\0') names++;
@@ -594,6 +609,13 @@ void debug_list_dir_contents(unsigned char *names, struct FatShortDir *dirs) {
 		debug_print_date(dirs->CrtDate);
 		debugf(" ");
 		debug_print_time(dirs->CrtTime);
+		debugf(" ");
+		debug_print_date(dirs->WrtDate);
+		debugf(" ");
+		debug_print_time(dirs->WrtTime);
+		debugf(" ");
+		debug_print_date(dirs->LstAccDate);
+		debugf(" ");
 		debugf(" 0x%04X %8u\n", dirs->Attr, dirs->FstClusLO);
 
 		dirs++;
@@ -601,9 +623,16 @@ void debug_list_dir_contents(unsigned char *names, struct FatShortDir *dirs) {
 }
 
 int find_dir(unsigned char *file_name, unsigned char *buf_ptr, struct FatShortDir **dir) {
-	unsigned char name[BY2SECT];
+	unsigned char name[BY2SECT], processed_name[BY2SECT];
 	struct FatShortDir *fatDir = (struct FatShortDir *)buf_ptr;
 	*dir = NULL;
+	uint32_t i = 0;
+	if (strlen((char *)file_name) <= 12) {
+		for (i = 0; file_name[i] != '\0'; i++) processed_name[i] = encode_char(file_name[i]);
+		// debugf("i = %d\n", i);
+	}
+	processed_name[i] = '\0';
+	// debugf("processed name = %s\n", processed_name);
 	while (fatDir->Name[0]) {
 		// empty file
 		if (fatDir->Name[0] == (unsigned char)FAT_DIR_ENTRY_FREE) {
@@ -613,12 +642,16 @@ int find_dir(unsigned char *file_name, unsigned char *buf_ptr, struct FatShortDi
 		}
 		try(get_full_name(fatDir, name, (struct FatShortDir **)&buf_ptr));
 		if (strcmp((char *)name, (char *)file_name) == 0) {
-			*dir = fatDir;
+			*dir = (struct FatShortDir *)buf_ptr - 1;
+			return 0;
+		}
+		if (processed_name[0] && strcmp((char *)name, (char *)processed_name) == 0) {
+			*dir = (struct FatShortDir *)buf_ptr - 1;
 			return 0;
 		}
 		fatDir = (struct FatShortDir *)buf_ptr;
 	}
-	return 0;
+	return -E_FAT_NOT_FOUND;
 }
 
 int free_dir(struct FatShortDir *pdir, unsigned char *file_name) {
@@ -850,5 +883,131 @@ int create_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned cha
 	try(alloc_and_write_dir_entry(buf, &sdir, ldirs, ldir_cnt, pdir_size * fatBPB.BytsPerSec * fatBPB.SecPerClus / sizeof(struct FatShortDir)));
 	try(write_fat_clusters(clus, buf, FAT_MAX_FILE_SIZE));
 	try(write_fat_clusters(alloc_clus, file_content, size));
+	return 0;
+}
+
+int read_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t read_len) {
+	if ((pdir->Attr & FAT_ATTR_DIRECTORY) != FAT_ATTR_DIRECTORY || (pdir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+		return -E_FAT_BAD_DIR;
+	}
+	uint32_t pclus = pdir->FstClusLO;
+
+	unsigned char pbuf[FAT_MAX_FILE_SIZE];
+	try(read_fat_clusters(pclus, pbuf, FAT_MAX_FILE_SIZE));
+
+	struct FatShortDir *dir = NULL;
+	try(find_dir(file_name, pbuf, &dir));
+	if (dir == NULL) {
+		return -E_FAT_NOT_FOUND;
+	}
+
+	read_len = read_len > dir->FileSize ? dir->FileSize : read_len;
+	// debugf("reading cluster %d size = %d\n", dir->FstClusLO, read_len);
+
+	uint32_t year, month, date, hour, minute, second, timestamp, timeus;
+	timestamp = get_time(&timeus);
+	try(get_all_time(timestamp, &year, &month, &date, &hour, &minute, &second));
+	hour += 8; // This is UTC, we need CST
+	uint8_t tmp_int;
+	uint16_t tmp_int2;
+	get_fat_time(year, month, date, hour, minute, second, timeus, &tmp_int, &tmp_int2, &dir->LstAccDate);
+
+	try(read_fat_clusters(dir->FstClusLO, buf, read_len));
+	try(write_fat_clusters(pclus, pbuf, FAT_MAX_FILE_SIZE));
+	return 0;
+}
+
+int write_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t write_len) {
+	if ((pdir->Attr & FAT_ATTR_DIRECTORY) != FAT_ATTR_DIRECTORY || (pdir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+		return -E_FAT_BAD_DIR;
+	}
+	uint32_t pclus = pdir->FstClusLO;
+
+	unsigned char pbuf[FAT_MAX_FILE_SIZE];
+	try(read_fat_clusters(pclus, pbuf, FAT_MAX_FILE_SIZE));
+
+	struct FatShortDir *dir = NULL;
+	try(find_dir(file_name, pbuf, &dir));
+	if (dir == NULL) {
+		return -E_FAT_NOT_FOUND;
+	}
+
+	uint32_t ori_clus_num = (dir->FileSize + fatBPB.BytsPerSec * fatBPB.SecPerClus - 1) / (fatBPB.BytsPerSec * fatBPB.SecPerClus);
+	uint32_t new_clus_num = (write_len + fatBPB.BytsPerSec * fatBPB.SecPerClus - 1) / (fatBPB.BytsPerSec * fatBPB.SecPerClus);
+	if (new_clus_num > ori_clus_num) {
+		uint32_t cur_clus = dir->FstClusLO;
+		try(expand_fat_clusters(&cur_clus, new_clus_num - ori_clus_num));
+	}
+	// debugf("writing cluster %d size = %d\n", dir->FstClusLO, write_len);
+
+	dir->FileSize = write_len > dir->FileSize ? write_len : dir->FileSize;
+
+	uint32_t year, month, date, hour, minute, second, timestamp, timeus;
+	timestamp = get_time(&timeus);
+	try(get_all_time(timestamp, &year, &month, &date, &hour, &minute, &second));
+	hour += 8; // This is UTC, we need CST
+	uint8_t tmp_int;
+	get_fat_time(year, month, date, hour, minute, second, timeus, &tmp_int, &dir->WrtTime, &dir->WrtDate);
+	dir->LstAccDate = dir->WrtDate;
+	
+	try(write_fat_clusters(dir->FstClusLO, buf, write_len));
+	try(write_fat_clusters(pclus, pbuf, FAT_MAX_FILE_SIZE));
+	return 0;
+}
+
+int walk_path_fat(unsigned char *path, struct FatShortDir *pdir, struct FatShortDir *pfile) {
+	unsigned char buf[FAT_MAX_FILE_SIZE];
+	unsigned char *p;
+	unsigned char name[BY2SECT];
+	struct FatShortDir file, dir, *tmpfilep;
+	int pclus;
+	int r;
+
+	// start at the root.
+	while (*path == '/') path++;
+	file = FakeRoot;
+	dir = file;
+	tmpfilep = &file;
+
+	// debugf("HALF GOOD!\n");
+	// find the target file by name recursively.
+	while (*path != '\0') {
+		p = path;
+		dir = file;
+		pclus = dir.FstClusLO;
+
+		while (*path != '/' && *path != '\0') {
+			path++;
+		}
+
+		memcpy(name, p, path - p);
+		name[path - p] = '\0';
+		while (*path == '/') path++;
+		if ((dir.Attr & FAT_ATTR_DIRECTORY) != FAT_ATTR_DIRECTORY) {
+			return -E_FAT_NOT_FOUND;
+		}
+
+		// debugf("looking for %s\n", name);
+		try(read_fat_clusters(pclus, buf, FAT_MAX_FILE_SIZE));
+		if ((r = find_dir(name, buf, &tmpfilep)) < 0) {
+			if (r == -E_FAT_NOT_FOUND && *path == '\0') {
+				if (pdir) {
+					*pdir = dir;
+				}
+
+				*pfile = dir;
+			}
+
+			return r;
+		}
+		if (tmpfilep) file = *tmpfilep;
+		// debugf("Found file name = %s\n", file.Name);
+	}
+
+	if (pdir) {
+		*pdir = dir;
+	}
+
+	*pfile = file;
 	return 0;
 }

@@ -110,10 +110,11 @@ void fat_init();
 void debug_print_fatBPB();
 void debug_print_fatsec(uint32_t secno);
 void debug_print_fatDisk();
+unsigned char encode_char(unsigned char ch);
 int get_fat_entry(uint32_t clus, uint32_t *pentry_val);
 int set_fat_entry(uint32_t clus, uint32_t entry_val);
 void debug_print_fat_entry(uint32_t clus);
-int read_fat_cluster(uint32_t clus, unsigned char *buf);
+int read_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts);
 int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts);
 int read_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts);
 int write_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts);
@@ -131,6 +132,9 @@ int read_dir(u_int clus, unsigned char *names, struct FatShortDir *dirs);
 void debug_list_dir_contents(unsigned char *names, struct FatShortDir *dirs);
 int free_dir(struct FatShortDir *pdir, unsigned char *file_name);
 int create_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t size, unsigned char Attr);
+int read_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t read_len);
+int write_file(struct FatShortDir *pdir, unsigned char *file_name, unsigned char *buf, uint32_t write_len);
+int walk_path_fat(unsigned char *path, struct FatShortDir *pdir, struct FatShortDir *pfile);
 
 #endif
 
