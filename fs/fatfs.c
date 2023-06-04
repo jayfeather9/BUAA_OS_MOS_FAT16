@@ -512,6 +512,21 @@ int expand_fat_clusters(uint32_t *pclus, uint32_t count) {
 	return 0;
 }
 
+int shrink_fat_clusters(uint32_t *pclus, uint32_t new_size) {
+	uint32_t prev_clus, clus, entry_val = 0x0, cnt = 0;
+	for (prev_clus = *pclus; 1; prev_clus = entry_val) {
+		try(get_fat_entry(prev_clus, &entry_val));
+		cnt++;
+		if (cnt == new_size) {
+			try(set_fat_entry(prev_clus, 0xFFFF));
+		}
+		else if (cnt > new_size) {
+			try(set_fat_entry(prev_clus, 0x0));
+		}
+		if (entry_val == 0xFFFF) break;
+	}
+}
+
 int free_fat_clusters(uint32_t clus) {
 	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
 		try(get_fat_entry(clus, &entry_val));
@@ -590,6 +605,10 @@ int debug_print_file_as_dir_entry(uint32_t clus) {
 	struct FatShortDir *fatDir = (struct FatShortDir *)buf;
 	while (fatDir->Name[0] != 0) {
 		fatDir = (struct FatShortDir *)buf;
+		if (fatDir->Name[0] == FAT_DIR_ENTRY_FREE) {
+			buf += sizeof(struct FatShortDir);
+			continue;
+		}
 		if ((fatDir->Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
 			// debug_print_short_dir(fatDir);
 			debug_print_long_dir((struct FatLongDir *)fatDir);
@@ -795,7 +814,9 @@ int free_dir(struct FatShortDir *pdir, unsigned char *file_name) {
 		tmpdir--;
 	}
 	try(write_fat_clusters(clus, buf, FAT_MAX_FILE_SIZE));
-	try(free_fat_clusters(dir->FstClusLO));
+	if (dir->FstClusLO > 0) {
+		try(free_fat_clusters(dir->FstClusLO));
+	}
 	return 0;
 }
 
@@ -1163,5 +1184,24 @@ int fat_get_va(struct FatShortDir *f, uint32_t pageno, uint32_t *va) {
 		return r;
 	}
 	*va += pageno * BY2PG;
+	return 0;
+}
+
+// NOT FLUSHED TO DISK!!!
+int fat_set_size(struct FatShortDir *f, uint32_t newsize) {
+	uint32_t va;
+	if (is_clus_mapped(f->FstClusLO, &va)) {
+		try(write_fat_clusters(f->FstClusLO, va, f->FileSize));
+		try(free_clus(f->FstClusLO));
+	}
+	if (f->FileSize > newsize) {
+		try(shrink_fat_clusters(&f->FstClusLO, newsize / (fatBPB.BytsPerSec * fatBPB.SecPerClus)));
+	}
+	uint32_t old_clus_cnt = f->FileSize / (fatBPB.BytsPerSec * fatBPB.SecPerClus);
+	uint32_t new_clus_cnt = newsize / (fatBPB.BytsPerSec * fatBPB.SecPerClus);
+	if (new_clus_cnt > old_clus_cnt) {
+			expand_fat_clusters(&f->FstClusLO, new_clus_cnt - old_clus_cnt);
+	}
+	f->FileSize = newsize;
 	return 0;
 }

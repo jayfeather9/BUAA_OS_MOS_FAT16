@@ -10,7 +10,7 @@
 int main() {
 	debugf("test begin\n");	
 	
-	fat_init();
+	// fat_init();
 	// struct FatDisk *fdk = get_fat_disk();
 	// struct FatBPB *fbpb = get_fat_BPB();
 
@@ -47,6 +47,16 @@ int main() {
 	// free_clus(1);
 	// free_clus(5);
 	// debug_print_fspace();debugf("\n");
+
+	fat_init();
+	unsigned char buf[32767];
+	struct FatShortDir dirs[32];
+	read_dir(0, buf, dirs);
+	debug_list_dir_contents(buf, dirs);
+	debugf("removing with rt val = -0x%X\n", -fatipc_remove("/FAT.pdf"));
+	debugf("remove completed.\n");
+	read_dir(0, buf, dirs);
+	debug_list_dir_contents(buf, dirs);
 
 
 	return 0;

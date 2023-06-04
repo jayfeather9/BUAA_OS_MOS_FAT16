@@ -29,7 +29,6 @@ struct Fsreq_map {
 struct Fsreq_fatmap {
 	int req_fileid;
 	u_int req_pageno;
-	struct FatShortDir req_f;
 };
 
 struct Fsreq_set_size {

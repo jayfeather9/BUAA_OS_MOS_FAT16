@@ -7,6 +7,7 @@
 
 struct FatOpen {
 	struct FatShortDir o_dir_entry;
+	struct FatShortDir o_parent_dir;
 	uint32_t o_fileid;
 	int o_mode;
 	struct FatFilefd *o_fatffd;
@@ -84,7 +85,7 @@ void fat_serve_open(u_int envid, struct Fsreq_open *rq) {
 	}
 
 	// Open the file.
-	if ((r = walk_path_fat((unsigned char *)rq->req_path, 0, &o->o_dir_entry)) < 0) {
+	if ((r = walk_path_fat((unsigned char *)rq->req_path, &o->o_parent_dir, &o->o_dir_entry)) < 0) {
 		ipc_send(envid, r, 0, 0);
 		return;
 	}
@@ -108,7 +109,9 @@ int wrap_fat_remove(char *path) {
 	char *p = path;
 	while (*p != '\0')p++;
 	while (*p != '/' && p > path)p--;
+	if (*p == '/')p++;
 	if ((r = free_dir(&pdir, (unsigned char *)p)) < 0) {
+		debugf("free dir path = %s, rt val = -0x%X\n", p, -r);
 		return r;
 	}
 	return 0;
@@ -146,7 +149,7 @@ void fat_serve_map(u_int envid, struct Fsreq_fatmap *rq) {
 		return;
 	}
 
-	if ((r = fat_get_va(&rq->req_f, rq->req_pageno, (uint32_t *)&va)) < 0) {
+	if ((r = fat_get_va(&pOpen->o_dir_entry, rq->req_pageno, (uint32_t *)&va)) < 0) {
 		ipc_send(envid, r, 0, 0);
 		return;
 	}
@@ -155,6 +158,19 @@ void fat_serve_map(u_int envid, struct Fsreq_fatmap *rq) {
 }
 
 void fat_serve_set_size(u_int envid, struct Fsreq_set_size *rq) {
+	struct FatOpen *pOpen;
+	int r;
+	if ((r = fat_open_lookup(envid, rq->req_fileid, &pOpen)) < 0) {
+		ipc_send(envid, r, 0, 0);
+		return;
+	}
+
+	if ((r = fat_set_size(pOpen->o_dir_entry, rq->req_size)) < 0) {
+		ipc_send(envid, r, 0, 0);
+		return;
+	}
+
+	ipc_send(envid, 0, 0, 0);
 }
 
 void fat_serve_close(u_int envid, struct Fsreq_close *rq) {

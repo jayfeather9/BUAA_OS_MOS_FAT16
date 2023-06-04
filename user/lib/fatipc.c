@@ -51,20 +51,20 @@ int fatipc_open(const char *path, u_int omode, struct Fd *fd) {
 
 // Overview:
 //  Make a map-block request to the file server. We send the fileid and
-//  the (byte) offset of the desired block in the file, and the server sends
+//  the pageno of the desired part in the file, and the server sends
 //  us back a mapping for a page containing that block.
 //
 // Returns:
 //  0 on success,
 //  < 0 on failure.
-int fatipc_map(u_int fileid, u_int offset, void *dstva) {
+int fatipc_map(u_int fileid, u_int pageno, void *dstva) {
 	int r;
 	u_int perm;
-	struct Fsreq_map *req;
+	struct Fsreq_fatmap *req;
 
-	req = (struct Fsreq_map *)fatipcbuf;
+	req = (struct Fsreq_fatmap *)fatipcbuf;
 	req->req_fileid = fileid;
-	req->req_offset = offset;
+	req->req_pageno = pageno;
 
 	if ((r = fatipc(FSREQ_MAP, req, dstva, &perm)) < 0) {
 		return r;
