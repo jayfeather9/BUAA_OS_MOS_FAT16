@@ -69,6 +69,13 @@ int syscall_cgetc();
 int syscall_write_dev(void *, u_int, u_int);
 int syscall_read_dev(void *, u_int, u_int);
 
+// time.c
+u_int get_time(u_int *us);
+int get_all_time(uint32_t Timestamp, uint32_t *yr, uint32_t *mon, uint32_t *dt, uint32_t *hr, uint32_t *mn, uint32_t *sec);
+u_int get_fat_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute, uint32_t second, uint32_t us, uint8_t *CrtTimeTenth, uint16_t *CrtTime, uint16_t *CrtDate);
+void debug_print_date(uint16_t date);
+void debug_print_time(uint16_t time);
+
 // ipc.c
 void ipc_send(u_int whom, u_int val, const void *srcva, u_int perm);
 u_int ipc_recv(u_int *whom, void *dstva, u_int *perm);
