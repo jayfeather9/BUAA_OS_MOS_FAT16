@@ -99,19 +99,9 @@ struct FatSpace {
 	struct FatSpace *nxt, *prev;
 };
 
-#define E_FAT_BAD_CLUSTER 0x1000
-#define E_FAT_CLUSTER_FULL 0x1001
-#define E_FAT_DIFF 0x1002
-#define E_FAT_ACCESS_FREE_CLUSTER 0x1003
-#define E_FAT_BAD_ATTR 0x1004
-#define E_FAT_BAD_DIR 0x1005
-#define E_FAT_READ_FREE_DIR 0x1006
-#define E_FAT_NOT_FOUND 0x1007
-#define E_FAT_NAME_TOO_LONG 0x1008
-#define E_FAT_DIR_FULL 0x1009
-#define E_FAT_NAME_DUPLICATED 0x100A
-#define E_FAT_MAX_OPEN 0x100B
-#define E_FAT_INVAL 0x100C
-#define E_FAT_VA_FULL 0x100D
+#define E_FAT_NOT_FOUND 0x1000
+#define E_FAT_VA_FULL 0x1001
+#define E_FAT_CLUS_UNMAPPED 0x1002
+#define E_FAT_BAD_CLUSTER 0x1003
 
 #endif // _FS_H_

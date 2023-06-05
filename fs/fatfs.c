@@ -7,6 +7,10 @@ struct FATBPB fatBPB;
 struct FATDISK fatDisk;
 unsigned char zero_buffer[FAT_MAX_CLUS_SIZE];
 
+// =============================================================================
+//
+// below is fat space managing part
+
 struct FatSpace fat_spaces[FAT_MAX_SPACE_SIZE];
 struct FatSpace fat_space_head, fat_space_tail;
 
@@ -124,6 +128,111 @@ int alloc_fat_file_space(uint32_t clus, uint32_t bysize, uint32_t *va) {
 	}
 	return -E_FAT_VA_FULL;
 }
+// end of fat space managing part
+// =============================================================================
+
+
+// =============================================================================
+//
+// below is fat cluster managing part
+
+int is_bad_cluster(uint32_t clus) {
+	return (clus >= fatDisk.CountofClusters) || (clus < 2);
+}
+
+int read_fat_cluster(uint32_t clus, unsigned char *buf) {
+	if (clus == 0) {
+		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		return 0;
+	}
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
+	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.SecPerClus;
+	ide_read(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
+	nbyts = nbyts > fatBPB.SecPerClus * fatBPB.BytsPerSec ? fatBPB.SecPerClus * fatBPB.BytsPerSec : nbyts;
+	for (int i = 0; i < nbyts; i++) buf[i] = tmp_buf[i];
+	return 0;
+}
+
+int write_fat_cluster(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	unsigned char tmp_buf[FAT_MAX_FILE_SIZE];
+	if (clus == 0) {
+		nbyts = nbyts > fatDisk.RootDirSectors * fatBPB.BytsPerSec ? fatDisk.RootDirSectors * fatBPB.BytsPerSec : nbyts;
+		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, tmp_buf, fatDisk.RootDirSectors);
+		for (int i = 0; i < nbyts; i++) tmp_buf[i] = buf[i];
+		ide_write(DISKNO, fatDisk.FirstRootDirSecNum, tmp_buf, fatDisk.RootDirSectors);
+		return 0;
+	}
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
+	if (is_free_cluster(clus)) {
+		return -E_FAT_ACCESS_FREE_CLUSTER;
+	}
+	if (nbyts > fatBPB.SecPerClus * fatBPB.BytsPerSec) {
+		nbyts = fatBPB.SecPerClus * fatBPB.BytsPerSec;
+	}
+	uint32_t fat_sec = fatBPB.RsvdSecCnt + fatBPB.NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.SecPerClus;
+	ide_read(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
+	nbyts = nbyts > fatBPB.SecPerClus * fatBPB.BytsPerSec ? fatBPB.SecPerClus * fatBPB.BytsPerSec : nbyts;
+	for (int i = 0; i < nbyts; i++) tmp_buf[i] = buf[i];
+	ide_write(DISKNO, fat_sec, tmp_buf, fatBPB.SecPerClus);
+	return 0;
+}
+
+int read_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	if (clus == 0) {
+		return read_fat_cluster(0, buf, nbyts);
+	}
+	uint32_t prev_clus, entry_val = 0x0, finished_byts = 0;
+	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
+		try(get_fat_entry(prev_clus, &entry_val));
+		//try(read_fat_cluster(prev_clus, buf));
+		finished_byts += fatBPB.BytsPerSec * fatBPB.SecPerClus;
+		if (finished_byts < nbyts)
+			try(read_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus));
+		else
+			try(read_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus - (finished_byts - nbyts)));
+		if (finished_byts >= nbyts)break;
+		buf += fatBPB.BytsPerSec * fatBPB.SecPerClus;
+	}
+	return 0;
+}
+
+int write_fat_clusters(uint32_t clus, unsigned char *buf, uint32_t nbyts) {
+	if (clus == 0) {
+		return write_fat_cluster(0, buf, nbyts);
+	}
+	uint32_t prev_clus, entry_val = 0x0, finished_byts = 0;
+	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
+		try(get_fat_entry(prev_clus, &entry_val));
+		finished_byts += fatBPB.BytsPerSec * fatBPB.SecPerClus;
+		if (finished_byts < nbyts)
+			try(write_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus));
+		else
+			try(write_fat_cluster(prev_clus, buf, fatBPB.BytsPerSec * fatBPB.SecPerClus - (finished_byts - nbyts)));
+		if (finished_byts >= nbyts)break;
+		buf += fatBPB.BytsPerSec * fatBPB.SecPerClus;
+	}
+	return 0;
+}
+
+void debug_print_cluster_data(uint32_t clus) {
+	unsigned char buf[16384];
+	read_fat_cluster(clus, buf, FAT_MAX_CLUS_SIZE);
+	debugf("========= printing cluster %u =========\n", clus);
+	for (int i = 0; i < 32; i++) {
+		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
+		for (int j = 0; j < 16; j++) {
+			debugf("%02X ", buf[i*16+j]);
+		}
+		debugf("\n");
+	}
+	debugf("========= end of cluster %u ===========\n", clus);
+}
+// end of fat cluster managing part
+// =============================================================================
 
 void fat_file_flush(struct File *);
 int fat_block_is_free(u_int);
@@ -149,7 +258,7 @@ int fat_va_is_dirty(void *va) {
 
 // Overview:
 //  Check if this cluster is dirty. (check corresponding `va`)
-int fat_block_is_dirty(u_int clus) {
+int fat_clus_is_dirty(u_int clus) {
 	void *va;
 	if(is_clus_mapped(clus, va)){
 		return fat_va_is_mapped(va) && fat_va_is_dirty(va);
@@ -158,12 +267,15 @@ int fat_block_is_dirty(u_int clus) {
 }
 
 // Overview:
-//  Mark this block as dirty (cache page has changed and needs to be written back to disk).
-int fat_dirty_block(u_int blockno) {
-	void *va = fat_diskaddr(blockno);
+//  Mark this cluster as dirty (cache page has changed and needs to be written back to disk).
+int fat_dirty_clus(u_int clus) {
+	void *va;
+	if (!is_clus_mapped(clus, va)) {
+		return -E_FAT_CLUS_UNMAPPED;
+	}
 
 	if (!fat_va_is_mapped(va)) {
-		return -E_NOT_FOUND;
+		return -E_FAT_NOT_FOUND;
 	}
 
 	if (fat_va_is_dirty(va)) {
@@ -174,15 +286,15 @@ int fat_dirty_block(u_int blockno) {
 }
 
 // Overview:
-//  Write the current contents of the block out to disk.
-void fat_write_block(u_int blockno) {
+//  Write the current contents of the cluster out to disk.
+void fat_write_clus(u_int clus) {
+	void *va;
 	// Step 1: detect is this block is mapped, if not, can't write it's data to disk.
-	if (!fat_block_is_mapped(blockno)) {
-		user_panic("write unmapped block %08x", blockno);
+	if (!is_clus_mapped(clus, va)) {
+		user_panic("write unmapped cluster %d", clus);
 	}
 
 	// Step2: write data to IDE disk. (using ide_write, and the diskno is 0)
-	void *va = fat_diskaddr(blockno);
 	ide_write(0, blockno * SECT2BLK, va, SECT2BLK);
 }
 
