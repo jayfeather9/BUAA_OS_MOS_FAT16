@@ -1,5 +1,5 @@
-#ifndef _FS_H_
-#define _FS_H_ 1
+#ifndef _FATFS_H_
+#define _FATFS_H_ 1
 
 #include <stdint.h>
 
@@ -38,8 +38,8 @@
 #define FS_MAGIC 0x68286097 // Everyone's favorite OS class
 
 struct FATBPB {
-	char BS_jmpBoot[3];
-	char BS_OEMName[8];
+	unsigned char BS_jmpBoot[3];
+	unsigned char BS_OEMName[8];
 	uint16_t BPB_BytsPerSec;
 	uint8_t BPB_SecPerClus;
 	uint16_t BPB_RsvdSecCnt;
@@ -56,9 +56,9 @@ struct FATBPB {
 	uint8_t BS_Reserved1;
 	uint8_t BS_BootSig;
 	uint32_t BS_VolID;
-	char BS_VolLab[11];
-	char BS_FilSysType[8];
-};
+	uint8_t BS_VolLab[11];
+	uint8_t BS_FilSysType[8];
+}__attribute__((aligned(4), packed));
 
 struct FATDISK {
 	uint32_t RootDirSectors;		// the count of sectors occupied by the root directory
@@ -71,7 +71,7 @@ struct FATDISK {
 };
 
 struct FATDIRENT {
-	char DIR_Name[11];
+	uint8_t DIR_Name[11];
 	uint8_t DIR_Attr;
 	uint8_t DIR_NTRes;
 	uint8_t DIR_CrtTimeTenth;
@@ -83,18 +83,18 @@ struct FATDIRENT {
 	uint16_t DIR_WrtDate;
 	uint16_t DIR_FstClusLO;
 	uint32_t DIR_FileSize;
-};
+}__attribute__((aligned(4), packed));
 
 struct FATLONGNAME {
 	uint8_t LDIR_Ord;
-	uint16_t LDIR_Name1[5];
+	uint8_t LDIR_Name1[10];
 	uint8_t LDIR_Attr;
 	uint8_t LDIR_Type;
 	uint8_t LDIR_Chksum;
-	uint16_t LDIR_Name2[6];
+	uint8_t LDIR_Name2[12];
 	uint16_t LDIR_FstClusLO;
-	uint16_t LDIR_Name3[2];
-};
+	uint8_t LDIR_Name3[4];
+}__attribute__((aligned(4), packed));
 
 struct FatFile {
 	char f_name[MAXNAMELEN]; // filename
@@ -117,5 +117,7 @@ struct FatSpace {
 #define E_FAT_ENT_DIFF 1004
 #define E_FAT_ACCESS_FREE_CLUS 1005
 #define E_FAT_CLUSTER_FULL 1006
+#define E_FAT_READ_FREE_DIR 1007
+#define E_FAT_BAD_DIR 1008
 
-#endif // _FS_H_
+#endif // _FATFS_H_

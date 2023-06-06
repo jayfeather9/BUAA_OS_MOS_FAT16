@@ -1,3 +1,6 @@
+#ifndef _FATSERV_H_
+#define _FATSERV_H_
+
 #include <fatfs.h>
 #include <lib.h>
 #include <mmu.h>
@@ -31,10 +34,26 @@ extern void ide_write(u_int diskno, u_int secno, void *src, u_int nsecs);
 // void fat_file_flush(struct File *);
 
 void fat_fs_init(void);
+struct FATDIRENT *fat_get_root();
+int read_disk_fat_cluster(uint32_t clus, unsigned char *buf);
+int is_clus_mapped(uint32_t clus, uint32_t *va);
 void debug_print_fatBPB();
 void debug_print_fatDisk();
-int debug_print_file_as_dir_entry(uint32_t clus, char *buf);
+void debug_print_short_dir(struct FATDIRENT *dir, uint32_t num);
+int debug_print_file_as_dir_entry(char *buf);
+void debug_print_fatsec(uint32_t secno);
+int get_fat_entry(uint32_t clus, uint32_t *pentry_val);
+int fat_file_get_cluster_by_order(struct FATDIRENT *ent, u_int fileclno, uint32_t *pclus, u_int alloc);
+int fat_file_clear_clus(struct FATDIRENT *ent, u_int fileclno);
+int fat_file_get_clus(struct FATDIRENT *ent, u_int fileclno, void **data);
+void fat_write_clus(u_int clus);
+int fat_read_clus(u_int clus, void **pva, u_int *isnew);
+int fat_dirty_clus(u_int clus);
+int fat_dir_lookup(struct FATDIRENT *dir, char *name, struct FATDIRENT **ent);
+int fat_dir_alloc_files(struct FATDIRENT *dir, struct FATDIRENT **file, u_int count);
 
 // void fat_fs_sync(void);
 // int fat_map_block(u_int);
 // int fat_alloc_block(void);
+
+#endif // _FATSERV_H_

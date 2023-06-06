@@ -5,6 +5,33 @@ struct FATBPB fatBPB;
 struct FATDISK fatDisk;
 unsigned char zero_buffer[FAT_MAX_CLUS_SIZE];
 
+struct FATDIRENT fat_root_dir_ent;
+
+struct FATDIRENT *fat_get_root() {
+	return &fat_root_dir_ent;
+}
+
+void read_little_endian(unsigned char **buf, int len, uint32_t *ret) {
+	*ret = 0;
+	for (int i = len - 1; i >= 0; i--) {
+		*ret = (*ret << 8) + (*buf)[i];
+		// debugf("ret currently = %X\n", *ret);
+	}
+	(*buf) += len;
+}
+
+void write_little_endian(unsigned char **buf, int len, uint32_t val) {
+	for (int i = 0; i < len; i++) {
+		(*buf)[i] = (val & 0xff);
+		val >>= 8;
+	}
+	(*buf) += len;
+}
+
+int is_free_cluster(uint32_t clus);
+int get_fat_entry(uint32_t clus, uint32_t *pentry_val);
+int is_bad_cluster(uint32_t clus);
+
 // =============================================================================
 //
 // below is fat space managing part
@@ -40,7 +67,7 @@ void remove_fat_space_list(struct FatSpace *fsp) {
 }
 
 int insert_space(uint32_t st_va, uint32_t size) {
-	debugf("inserting space [0x%X, 0x%X]\n", st_va, st_va + size);
+	// debugf("inserting space [0x%X, 0x%X]\n", st_va, st_va + size);
 	int r;
 	struct FatSpace *fspace;
 	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
@@ -67,6 +94,10 @@ int insert_space(uint32_t st_va, uint32_t size) {
 //  Check if this cluster is mapped in cache.
 //  if va set, va will be set to the va of the stating va for the cluster
 int is_clus_mapped(uint32_t clus, uint32_t *va) {
+	if (clus == 0) {
+		*va = (uint32_t)FATROOTVA;
+		return 1;
+	}
 	struct FatSpace *fspace;
 	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
 		if (fspace->clus == clus) {
@@ -79,9 +110,22 @@ int is_clus_mapped(uint32_t clus, uint32_t *va) {
 	return 0;
 }
 
+struct FatSpace *get_clus_space_info(uint32_t clus) {
+	user_assert(!is_bad_cluster(clus));
+	struct FatSpace *fspace;
+	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
+		if (fspace->clus == clus) {
+			return fspace;
+		}
+	}
+	user_panic("can\'t find unmapped cluster %u!", clus);
+	return 0;
+}
+
 // Overview:
 // free the cluster space in cache
 int free_clus(uint32_t clus) {
+	user_assert(!is_bad_cluster(clus));
 	int r;
 	struct FatSpace *fspace;
 	for (fspace = fat_space_head.nxt; fspace != (&fat_space_tail); fspace = fspace->nxt) {
@@ -105,8 +149,9 @@ void debug_print_fspace() {
 // Overview:
 // alloc a space in cache for the cluster
 int alloc_fat_file_space(uint32_t clus, uint32_t bysize, uint32_t *va) {
+	user_assert(!is_bad_cluster(clus));
 	bysize = ROUND(bysize, BY2PG);
-	if (is_clus_mapped(clus, &va)) {
+	if (is_clus_mapped(clus, (uint32_t *)(&va))) {
 		return 0;
 	}
 	struct FatSpace *fspace;
@@ -126,7 +171,101 @@ int alloc_fat_file_space(uint32_t clus, uint32_t bysize, uint32_t *va) {
 	}
 	return -E_FAT_VA_FULL;
 }
+
+void fat_space_init() {
+	for (int i = 0; i < FAT_MAX_SPACE_SIZE; i++) {
+		fat_spaces[i].st_va = 0;
+	}
+
+	fat_space_head.nxt = &fat_space_tail;
+	fat_space_tail.prev = &fat_space_head;
+	insert_head_fat_space_list(FATVAMIN, FATVARANGE, 0);
+}
+
 // end of fat space managing part
+// =============================================================================
+
+// =============================================================================
+//
+// below is fat cluster managing part
+
+int is_bad_cluster(uint32_t clus) {
+	return (clus >= fatDisk.CountofClusters) || (clus < 2);
+}
+
+int read_disk_fat_cluster(uint32_t clus, unsigned char *buf) {
+	if (clus == 0) {
+		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		return 0;
+	}
+	if (is_free_cluster(clus)) {
+		return -E_FAT_ACCESS_FREE_CLUS;
+	}
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
+	uint32_t fat_sec = fatBPB.BPB_RsvdSecCnt + fatBPB.BPB_NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.BPB_SecPerClus;
+	ide_read(DISKNO, fat_sec, buf, fatBPB.BPB_SecPerClus);
+	return 0;
+}
+
+int write_disk_fat_cluster(uint32_t clus, unsigned char *buf) {
+	if (clus == 0) {
+		ide_write(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
+		return 0;
+	}
+	if (is_free_cluster(clus)) {
+		return -E_FAT_ACCESS_FREE_CLUS;
+	}
+	if (is_bad_cluster(clus)) {
+		return -E_FAT_BAD_CLUSTER;
+	}
+	uint32_t fat_sec = fatBPB.BPB_RsvdSecCnt + fatBPB.BPB_NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.BPB_SecPerClus;
+	ide_write(DISKNO, fat_sec, buf, fatBPB.BPB_SecPerClus);
+	return 0;
+}
+
+// userless in current management
+// int read_disk_fat_clusters(uint32_t clus, unsigned char *buf) {
+// 	if (clus == 0) {
+// 		return read_disk_fat_cluster(0, buf);
+// 	}
+// 	uint32_t prev_clus, entry_val = 0x0;
+// 	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
+// 		try(read_disk_fat_cluster(prev_clus, buf));
+// 		buf += fatDisk.BytsPerClus;
+// 		try(get_fat_entry(prev_clus, &entry_val));
+// 	}
+// 	return 0;
+// }
+
+// int write_disk_fat_clusters(uint32_t clus, unsigned char *buf) {
+// 	if (clus == 0) {
+// 		return write_disk_fat_cluster(0, buf);
+// 	}
+// 	uint32_t prev_clus, entry_val = 0x0;
+// 	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
+// 		try(write_disk_fat_cluster(prev_clus, buf));
+// 		buf += fatDisk.BytsPerClus;
+// 		try(get_fat_entry(prev_clus, &entry_val));
+// 	}
+// 	return 0;
+// }
+
+void debug_print_cluster_disk_data(uint32_t clus) {
+	unsigned char buf[FAT_MAX_CLUS_SIZE];
+	read_disk_fat_cluster(clus, buf);
+	debugf("========= printing cluster %u =========\n", clus);
+	for (int i = 0; i < 32; i++) {
+		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
+		for (int j = 0; j < 16; j++) {
+			debugf("%02X ", buf[i*16+j]);
+		}
+		debugf("\n");
+	}
+	debugf("========= end of cluster %u ===========\n", clus);
+}
+// end of fat cluster managing part
 // =============================================================================
 
 
@@ -170,7 +309,6 @@ int get_fat_entry(uint32_t clus, uint32_t *pentry_val) {
 	}
 
 	unsigned char *tmp_buf = fat_buf1 + fat_ent_offset;
-	// debugf("reading buf = %02X %02X, offset = %u\n", tmp_buf[0], tmp_buf[1], fat_ent_offset);
 	read_little_endian(&tmp_buf, 2, pentry_val);
 	return 0;
 }
@@ -215,6 +353,7 @@ void debug_print_fat_entry(uint32_t clus) {
 // but with no care about it's entry val
 // the entry val should be manually set
 // after calling this function to alloc
+// after allocing the cluster will be cleared to zero
 int search_and_get_fat_entry(uint32_t *pclus) {
 	uint32_t clus, entry_val;
 	for (clus = 2; clus < fatDisk.CountofClusters; clus++) {
@@ -222,7 +361,7 @@ int search_and_get_fat_entry(uint32_t *pclus) {
 		if (entry_val == 0) {
 			*pclus = clus;
 			try(set_fat_entry(clus, 0xFFFF));
-			try(write_fat_cluster(clus, zero_buffer, FAT_MAX_CLUS_SIZE));
+			try(write_disk_fat_cluster(clus, zero_buffer));
 			return 0;
 		}
 	}
@@ -252,7 +391,7 @@ int alloc_fat_cluster_entries(uint32_t *pclus, uint32_t count) {
 
 // Overview:
 //  expand fat cluster by "count" numbers
-int expand_fat_cluster_entries(uint32_t *pclus, uint32_t count) {
+int expand_fat_cluster_entries(uint32_t *pclus, uint32_t count, uint32_t *pendclus) {
 	uint32_t prev_clus, clus, entry_val = 0x0;
 	for (prev_clus = *pclus; 1; prev_clus = entry_val) {
 		try(get_fat_entry(prev_clus, &entry_val));
@@ -267,6 +406,9 @@ int expand_fat_cluster_entries(uint32_t *pclus, uint32_t count) {
 		prev_clus = clus;
 	}
 	try(set_fat_entry(prev_clus, 0xFFFF));
+	if (pendclus) {
+		*pendclus = prev_clus;
+	}
 	return 0;
 }
 
@@ -284,93 +426,36 @@ int free_fat_cluster_entries(uint32_t clus) {
 // =============================================================================
 
 
-// =============================================================================
-//
-// below is fat cluster managing part
-
-int is_bad_cluster(uint32_t clus) {
-	return (clus >= fatDisk.CountofClusters) || (clus < 2);
+//-----------------------------------------------------------------------------
+// This is a function provided by FAT document.
+// ChkSum()
+// Returns an unsigned byte checksum computed on an unsigned byte
+// array. The array must be 11 bytes long and is assumed to contain
+// a name stored in the format of a MS-DOS directory entry.
+// Passed: pFcbName Pointer to an unsigned byte array assumed to be
+// 11 bytes long.
+// Returns: Sum An 8-bit unsigned checksum of the array pointed
+// to by pFcbName.
+//------------------------------------------------------------------------------
+char generate_long_file_check_sum(char *pFcbName) {
+	short FcbNameLen;
+	char Sum;
+	Sum = 0;
+	for (FcbNameLen=11; FcbNameLen!=0; FcbNameLen--) {
+		// NOTE: The operation is an unsigned char rotate right
+		Sum = ((Sum & 1) ? 0x80 : 0) + (Sum >> 1) + *pFcbName++;
+	}
+	return (Sum);
 }
 
-int read_disk_fat_cluster(uint32_t clus, unsigned char *buf) {
-	if (clus == 0) {
-		ide_read(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
-		return 0;
-	}
-	if (is_free_cluster(clus)) {
-		return -E_FAT_ACCESS_FREE_CLUS;
-	}
-	if (is_bad_cluster(clus)) {
-		return -E_FAT_BAD_CLUSTER;
-	}
-	uint32_t fat_sec = fatBPB.BPB_RsvdSecCnt + fatBPB.BPB_NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.BPB_SecPerClus;
-	ide_read(DISKNO, fat_sec, buf, fatBPB.BPB_SecPerClus);
-	return 0;
-}
-
-int write_disk_fat_cluster(uint32_t clus, unsigned char *buf) {
-	if (clus == 0) {
-		ide_write(DISKNO, fatDisk.FirstRootDirSecNum, buf, fatDisk.RootDirSectors);
-		return 0;
-	}
-	if (is_free_cluster(clus)) {
-		return -E_FAT_ACCESS_FREE_CLUS;
-	}
-	if (is_bad_cluster(clus)) {
-		return -E_FAT_BAD_CLUSTER;
-	}
-	uint32_t fat_sec = fatBPB.BPB_RsvdSecCnt + fatBPB.BPB_NumFATs * fatDisk.FATSz + fatDisk.RootDirSectors + (clus - 2) * fatBPB.BPB_SecPerClus;
-	ide_write(DISKNO, fat_sec, buf, fatBPB.BPB_SecPerClus);
-	return 0;
-}
-
-int read_disk_fat_clusters(uint32_t clus, unsigned char *buf) {
-	if (clus == 0) {
-		return read_disk_fat_cluster(0, buf);
-	}
-	uint32_t prev_clus, entry_val = 0x0, finished_byts = 0;
-	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
-		try(read_disk_fat_cluster(prev_clus, buf));
-		buf += fatDisk.BytsPerClus;
-		try(get_fat_entry(prev_clus, &entry_val));
-	}
-	return 0;
-}
-
-int write_disk_fat_clusters(uint32_t clus, unsigned char *buf) {
-	if (clus == 0) {
-		return write_disk_fat_cluster(0, buf);
-	}
-	uint32_t prev_clus, entry_val = 0x0, finished_byts = 0;
-	for (prev_clus = clus; entry_val != 0xFFFF; prev_clus = entry_val) {
-		try(write_disk_fat_cluster(prev_clus, buf));
-		buf += fatDisk.BytsPerClus;
-		try(get_fat_entry(prev_clus, &entry_val));
-	}
-	return 0;
-}
-
-void debug_print_cluster_disk_data(uint32_t clus) {
-	unsigned char buf[FAT_MAX_CLUS_SIZE];
-	read_disk_fat_cluster(clus, buf);
-	debugf("========= printing cluster %u =========\n", clus);
-	for (int i = 0; i < 32; i++) {
-		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
-		for (int j = 0; j < 16; j++) {
-			debugf("%02X ", buf[i*16+j]);
-		}
-		debugf("\n");
-	}
-	debugf("========= end of cluster %u ===========\n", clus);
-}
-// end of fat cluster managing part
-// =============================================================================
-
-// Overview:
-//  Return the virtual address of this disk block in cache.
-// UNUSABLE
-void *fat_diskaddr(u_int blockno) {
-	user_panic("usage of unusable function!\n");
+char encode_char(char ch) {
+	if ((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z')) return ch;
+	if (ch >= 'a' && ch <= 'z') return ch - 'a' + 'A';
+	// $%'-_@~`!(){}^#&
+	if (ch == '$' || ch == '%' || ch == '\'' || ch == '-' || ch == '@' || ch == '~' || ch == '`' ||
+			ch == '!' || ch == '(' || ch == ')' || ch == '{' || ch == '}' || ch == '^' || ch == '#' ||
+			ch == '&' || ch == '.') return ch;
+	return '_';
 }
 
 // Overview:
@@ -389,7 +474,7 @@ int fat_va_is_dirty(void *va) {
 //  Check if this cluster is dirty. (check corresponding `va`)
 int fat_clus_is_dirty(u_int clus) {
 	void *va;
-	if(is_clus_mapped(clus, &va)){
+	if(is_clus_mapped(clus, (uint32_t *)(&va))){
 		return fat_va_is_mapped(va) && fat_va_is_dirty(va);
 	}
 	return 0;
@@ -399,7 +484,7 @@ int fat_clus_is_dirty(u_int clus) {
 //  Mark this cluster as dirty (cache page has changed and needs to be written back to disk).
 int fat_dirty_clus(u_int clus) {
 	void *va;
-	if (!is_clus_mapped(clus, &va)) {
+	if (!is_clus_mapped(clus, (uint32_t *)(&va))) {
 		return -E_FAT_CLUS_UNMAPPED;
 	}
 
@@ -421,9 +506,13 @@ int fat_dirty_clus(u_int clus) {
 // Overview:
 //  Write the current contents of the cluster out to disk.
 void fat_write_clus(u_int clus) {
+	if (clus == 0) {
+		user_assert(!write_disk_fat_cluster(0, (unsigned char *)FATROOTVA));
+		return;
+	}
 	void *va;
 	// Step 1: detect is this block is mapped, if not, can't write it's data to disk.
-	if (!is_clus_mapped(clus, &va)) {
+	if (!is_clus_mapped(clus, (uint32_t *)(&va))) {
 		user_panic("write unmapped cluster %d", clus);
 	}
 
@@ -461,15 +550,16 @@ int fat_read_clus(u_int clus, void **pva, u_int *isnew) {
 	// Hint:
 	//  If this cluster is already mapped, just set *isnew, else alloc memory and
 	//  read data using function
-	if (is_clus_mapped(clus, &va)) { // the block is in memory
+	if (is_clus_mapped(clus, (uint32_t *)(&va))) { // the block is in memory
 		if (isnew) {
 			*isnew = 0;
 		}
 	} else { // the block is not in memory
+		// debugf("not mapped, allocing");
 		if (isnew) {
 			*isnew = 1;
 		}
-		alloc_fat_file_space(clus, fatDisk.BytsPerClus, va);
+		alloc_fat_file_space(clus, fatDisk.BytsPerClus, (uint32_t *)(&va));
 		u_int pagecnt = (fatDisk.BytsPerClus + BY2PG - 1) / BY2PG;
 		for (int i = 0; i < pagecnt; i++) {
 			syscall_mem_alloc(0, va + i * BY2PG, PTE_D);
@@ -489,7 +579,7 @@ int fat_read_clus(u_int clus, void **pva, u_int *isnew) {
 int fat_map_clus(u_int clus) {
 	// Step 1: If the cluster is already mapped in cache, return 0.
 	void *va;
-	if (is_clus_mapped(clus, &va)) {
+	if (is_clus_mapped(clus, (uint32_t *)(&va))) {
 		return 0;
 	}
 
@@ -508,7 +598,7 @@ int fat_map_clus(u_int clus) {
 void fat_unmap_clus(u_int clus) {
 	// Step 1: Get the mapped address of the cache page of this cluster.
 	void *va;
-	user_assert(is_clus_mapped(clus, &va));
+	user_assert(is_clus_mapped(clus, (uint32_t *)(&va)));
 
 	// Step 2: If this block is used (not free) and dirty in cache, write it back to the disk
 	// first.
@@ -529,12 +619,12 @@ void fat_unmap_clus(u_int clus) {
 
 void read_root(void) {
 	u_int root_byte_cnt = fatDisk.RootDirSectors * fatBPB.BPB_BytsPerSec;
-	void *va = FATROOTVA;
+	void *va = (void *)FATROOTVA;
 	u_int pagecnt = (root_byte_cnt + BY2PG - 1) / BY2PG;
 	for (int i = 0; i < pagecnt; i++) {
 		user_assert(!syscall_mem_alloc(0, va + i * BY2PG, PTE_D));
 	}
-	read_disk_fat_clusters(0, va);
+	read_disk_fat_cluster(0, va);
 }
 
 // Overview:
@@ -544,9 +634,10 @@ void read_root(void) {
 //  2. check if the disk can work.
 //  3. read bitmap blocks from disk to memory.
 void fat_fs_init(void) {
-	char fat_buf[BY2PG];
+	for (int i = 0; i < FAT_MAX_CLUS_SIZE; i++) zero_buffer[i] = 0;
+	uint8_t fat_buf[BY2PG];
 	ide_read(DISKNO, 0, fat_buf, 1);
-	fatBPB = *(struct FATBPB *)fat_buf;
+	fatBPB = *((struct FATBPB *)fat_buf);
 	user_assert(fatBPB.BS_jmpBoot[0] == 0xEB || fatBPB.BS_jmpBoot[0] == 0xE9);
 	user_assert(fatBPB.BS_Reserved1 == 0x0);
 	user_assert(fat_buf[510] == 0x55 && fat_buf[511] == 0xAA);
@@ -561,231 +652,354 @@ void fat_fs_init(void) {
 	user_assert(fatDisk.RootDirSectors <= FAT_MAX_ROOT_SEC_NUM);
 	user_assert(fatDisk.RootDirSectors * fatBPB.BPB_BytsPerSec <= FAT_MAX_ROOT_BYTES);
 	read_root();
+	fat_root_dir_ent.DIR_Attr = FAT_ATTR_DIRECTORY;
+	fat_root_dir_ent.DIR_FileSize = 0;
+	fat_root_dir_ent.DIR_FstClusLO = 0;
+	fat_space_init();
 }
 
+// Overview:
+//  Like pgdir_walk but for files.
+//  Find the disk cluster number slot for the 'fileclno'th block in file 'ent'. Then, set
+//  '*pclus' to the starting cluster of ent
+//  When 'alloc' is set, this function will alloc more clusters for ent if necessary.
+//
+// Post-Condition:
+//  Return 0 on success, and set *ppdiskbno to the pointer to the target block.
+//  Return -E_FAT_NOT_FOUND if the function needed to allocate an indirect block, but alloc was 0.
+int fat_file_get_cluster_by_order(struct FATDIRENT *ent, u_int fileclno, uint32_t *pclus, u_int alloc) {
+	uint32_t clus = ent->DIR_FstClusLO;
+	uint32_t cnt = 0;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		// debugf("reading clus %u\n", clus);
+		try(get_fat_entry(clus, &entry_val));
+		if (cnt == fileclno) {
+			*pclus = clus;
+			return 0;
+		}
+		cnt++;
+	}
+	if (!alloc) {
+		return -E_FAT_NOT_FOUND;
+	}
+	clus = ent->DIR_FstClusLO;
+	// fileclno starts from 0
+	try(expand_fat_cluster_entries(&clus, fileclno + 1 - cnt, 0));
+	cnt = 0;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		try(get_fat_entry(clus, &entry_val));
+		if (cnt == fileclno) {
+			*pclus = clus;
+			if (entry_val != 0xFFFF) {
+				user_panic("expand false happened");
+			}
+			return 0;
+		}
+		cnt++;
+	}
+	user_panic("bad response");
+	return -1;
+}
 
-// // Overview:
-// //  Like pgdir_walk but for files.
-// //  Find the disk block number slot for the 'filebno'th block in file 'f'. Then, set
-// //  '*ppdiskbno' to point to that slot. The slot will be one of the f->f_direct[] entries,
-// //  or an entry in the indirect block.
-// //  When 'alloc' is set, this function will allocate an indirect block if necessary.
-// //
-// // Post-Condition:
-// //  Return 0 on success, and set *ppdiskbno to the pointer to the target block.
-// //  Return -E_NOT_FOUND if the function needed to allocate an indirect block, but alloc was 0.
-// //  Return -E_NO_DISK if there's no space on the disk for an indirect block.
-// //  Return -E_NO_MEM if there's not enough memory for an indirect block.
-// //  Return -E_INVAL if filebno is out of range (>= NINDIRECT).
-// int fat_file_block_walk(struct File *f, u_int filebno, uint32_t **ppdiskbno, u_int alloc) {
-// 	int r;
-// 	uint32_t *ptr;
-// 	uint32_t *blk;
+// Overview:
+//  Set *diskclno to the disk cluster number for the fileclno'th block in file ent.
+//  If alloc is set and the cluster does not exist, allocate it.
+//
+// Post-Condition:
+//  Returns 0: success, < 0 on error.
+//  Errors are:
+//   -E_NOT_FOUND: alloc was 0 but the block did not exist.
+int fat_file_map_clus(struct FATDIRENT *ent, u_int fileclno, u_int *diskclno, u_int alloc) {
+	int r;
+	uint32_t clus;
 
-// 	if (filebno < NDIRECT) {
-// 		// Step 1: if the target block is corresponded to a direct pointer, just return the
-// 		// disk block number.
-// 		ptr = &f->f_direct[filebno];
-// 	} else if (filebno < NINDIRECT) {
-// 		// Step 2: if the target block is corresponded to the indirect block, but there's no
-// 		//  indirect block and `alloc` is set, create the indirect block.
-// 		if (f->f_indirect == 0) {
-// 			if (alloc == 0) {
-// 				return -E_NOT_FOUND;
-// 			}
+	// Step 1: find the pointer for the target cluster.
+	if ((r = fat_file_get_cluster_by_order(ent, fileclno, &clus, alloc)) < 0) {
+		return r;
+	}
 
-// 			if ((r = fat_alloc_block()) < 0) {
-// 				return r;
-// 			}
-// 			f->f_indirect = r;
-// 		}
+	// Step 2: if the block not exists, and create is set, alloc one.
+	// done by fat_file_get_cluster_by_order()
 
-// 		// Step 3: read the new indirect block to memory.
-// 		if ((r = fat_read_block(f->f_indirect, (void **)&blk, 0)) < 0) {
-// 			return r;
-// 		}
-// 		ptr = blk + filebno;
-// 	} else {
-// 		return -E_INVAL;
-// 	}
+	// Step 3: set the pointer to the block in *diskbno and return 0.
+	*diskclno = clus;
+	return 0;
+}
 
-// 	// Step 4: store the result into *ppdiskbno, and return 0.
-// 	*ppdiskbno = ptr;
-// 	return 0;
-// }
+// Overview:
+//  Remove a cluster from file ent.
+int fat_file_clear_clus(struct FATDIRENT *ent, u_int fileclno) {
+	int r;
+	uint32_t target_clus;
 
-// // OVerview:
-// //  Set *diskbno to the disk block number for the filebno'th block in file f.
-// //  If alloc is set and the block does not exist, allocate it.
-// //
-// // Post-Condition:
-// //  Returns 0: success, < 0 on error.
-// //  Errors are:
-// //   -E_NOT_FOUND: alloc was 0 but the block did not exist.
-// //   -E_NO_DISK: if a block needed to be allocated but the disk is full.
-// //   -E_NO_MEM: if we're out of memory.
-// //   -E_INVAL: if filebno is out of range.
-// int fat_file_map_block(struct File *f, u_int filebno, u_int *diskbno, u_int alloc) {
-// 	int r;
-// 	uint32_t *ptr;
+	if ((r = fat_file_get_cluster_by_order(ent, fileclno, &target_clus, 0)) < 0) {
+		return r;
+	}
 
-// 	// Step 1: find the pointer for the target block.
-// 	if ((r = fat_file_block_walk(f, filebno, &ptr, alloc)) < 0) {
-// 		return r;
-// 	}
+	uint32_t clus = ent->DIR_FstClusLO, prev_clus = 0;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		// debugf("reading clus %u\n", clus);
+		try(get_fat_entry(clus, &entry_val));
+		if (clus == target_clus) {
+			if (prev_clus == 0) {
+				ent->DIR_FstClusLO = (entry_val == 0xFFFF) ? 0x0 : entry_val;
+			}
+			else {
+				try(set_fat_entry(prev_clus, entry_val));
+			}
+			try(set_fat_entry(clus, 0x0));
+			return 0;
+		}
+		prev_clus = clus;
+	}
 
-// 	// Step 2: if the block not exists, and create is set, alloc one.
-// 	if (*ptr == 0) {
-// 		if (alloc == 0) {
-// 			return -E_NOT_FOUND;
-// 		}
+	return 0;
+}
 
-// 		if ((r = fat_alloc_block()) < 0) {
-// 			return r;
-// 		}
-// 		*ptr = r;
-// 	}
+// Overview:
+//  look for the "fileclno"th cluster in file ent
+//  and make sure it is read to disk, va = *data
+//
+// Post-Condition:
+//  return 0 on success, and read the data to `blk`, return <0 on error.
+int fat_file_get_clus(struct FATDIRENT *ent, u_int fileclno, void **data) {
+	int r;
+	u_int diskclno;
 
-// 	// Step 3: set the pointer to the block in *diskbno and return 0.
-// 	*diskbno = *ptr;
-// 	return 0;
-// }
+	// Step 1: find the disk block number is `f` using `file_map_block`.
+	if ((r = fat_file_map_clus(ent, fileclno, &diskclno, 1)) < 0) {
+		return r;
+	}
 
-// // Overview:
-// //  Remove a block from file f. If it's not there, just silently succeed.
-// int fat_file_clear_block(struct File *f, u_int filebno) {
-// 	int r;
-// 	uint32_t *ptr;
+	// Step 2: read the data in this disk to blk.
+	if ((r = fat_read_clus(diskclno, data, 0)) < 0) {
+		return r;
+	}
+	return 0;
+}
 
-// 	if ((r = fat_file_block_walk(f, filebno, &ptr, 0)) < 0) {
-// 		return r;
-// 	}
+// Overview:
+//  Mark the offset/BytsPerClus'th cluster dirty in file ent.
+int fat_file_dirty(struct FATDIRENT *ent, u_int offset) {
+	int r;
+	u_int diskclno;
 
-// 	if (*ptr) {
-// 		fat_free_block(*ptr);
-// 		*ptr = 0;
-// 	}
+	if ((r = fat_file_map_clus(ent, offset / fatDisk.BytsPerClus, &diskclno, 0)) < 0) {
+		return r;
+	}
 
-// 	return 0;
-// }
+	return fat_dirty_clus(diskclno);
+}
 
-// // Overview:
-// //  Set *blk to point at the filebno'th block in file f.
-// //
-// // Hint: use file_map_block and read_block.
-// //
-// // Post-Condition:
-// //  return 0 on success, and read the data to `blk`, return <0 on error.
-// int fat_file_get_block(struct File *f, u_int filebno, void **blk) {
-// 	int r;
-// 	u_int diskbno;
-// 	u_int isnew;
+// Overview:
+//  read a dir or file to memory
+int fat_read_file_to_memory(struct FATDIRENT *ent) {
+	uint32_t clus = ent->DIR_FstClusLO;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		try(get_fat_entry(clus, &entry_val));
+		if (!is_clus_mapped(clus, 0)) {
+			try(alloc_fat_file_space(clus, fatDisk.BytsPerClus, 0));
+		}
+		void *va;
+		user_assert(is_clus_mapped(clus, (uint32_t *)(&va)));
+		try(read_disk_fat_cluster(clus, va));
+	}
+	return 0;
+}
 
-// 	// Step 1: find the disk block number is `f` using `file_map_block`.
-// 	if ((r = fat_file_map_block(f, filebno, &diskbno, 1)) < 0) {
-// 		return r;
-// 	}
+int read_and_cat_long_file_name(struct FATLONGNAME *fatlDir, char *ori_name) {
+	char cur_name[30];
+	char *name = cur_name, *st_ori_name = ori_name;
+	for (int i = 0; i < 10; i += 2) {
+		if (fatlDir->LDIR_Name1[i] == (uint8_t)0xFF && fatlDir->LDIR_Name1[i+1] == (uint8_t)0xFF) goto read_long_end;
+		*name++ = fatlDir->LDIR_Name1[i];
+	}
+	for (int i = 0; i < 12; i += 2) {
+		if (fatlDir->LDIR_Name2[i] == (uint8_t)0xFF && fatlDir->LDIR_Name2[i+1] == (uint8_t)0xFF) goto read_long_end;
+		*name++ = fatlDir->LDIR_Name2[i];
+	}
+	for (int i = 0; i < 4; i += 2) {
+		if (fatlDir->LDIR_Name3[i] == (uint8_t)0xFF && fatlDir->LDIR_Name3[i+1] == (uint8_t)0xFF) goto read_long_end;
+		*name++ = fatlDir->LDIR_Name3[i];
+	}
+read_long_end:;
+		*name = '\0';
+		// debugf("got ori name %s and new name %s\n", st_ori_name, cur_name);
+		int add_length = name - cur_name;
+		while (*ori_name != '\0')ori_name++;
+		*(ori_name + add_length) = *ori_name;
+		while (ori_name != st_ori_name) {
+			ori_name--;
+			*(ori_name + add_length) = *ori_name;
+		}
+		for (name = cur_name; name - cur_name < add_length;) {
+			*ori_name++ = *name++;
+		}
+		// debugf("output name %s\n", st_ori_name);
+		return add_length;
+}
 
-// 	// Step 2: read the data in this disk to blk.
-// 	if ((r = fat_read_block(diskbno, blk, &isnew)) < 0) {
-// 		return r;
-// 	}
-// 	return 0;
-// }
+// Overview:
+// input the first Fat directory entry pointer
+// (if long name file, then give the first long name entry)
+// and return the file name in buf
+// the next directory entry pointer will be stored at *nxtdir
+// we can't handle when long name entries are crossing cluster
+int fat_get_full_name(struct FATDIRENT *dir, char *buf, struct FATDIRENT **nxtdir) {
+	if (dir->DIR_Name[0] == (char)FAT_DIR_ENTRY_FREE) {
+		return -E_FAT_READ_FREE_DIR;
+	}
+	if ((dir->DIR_Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+		if ((dir->DIR_Name[0] & FAT_LAST_LONG_ENTRY) != FAT_LAST_LONG_ENTRY) {
+			// input long name entry isn't the first one
+			return -E_FAT_BAD_DIR;
+		}
+		*buf = '\0';
+		struct FATLONGNAME *ldir;
+		for (ldir = (struct FATLONGNAME *)dir; (ldir->LDIR_Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME; ldir++) {
+			read_and_cat_long_file_name(ldir, buf);
+		}
+		*nxtdir = (struct FATDIRENT *)ldir + 1;
+	}
+	else {
+		char *tmpbuf_ptr = buf;
+		for (int i = 0; i < 11; i++) {
+			if (dir->DIR_Name[i] == '\0' || dir->DIR_Name[i] == ' ') continue;
+			if (i == 8) *tmpbuf_ptr++ = '.';
+			*tmpbuf_ptr++ = dir->DIR_Name[i];
+		}
+		*tmpbuf_ptr++ = '\0';
+		*nxtdir = dir + 1;
+	}
+	return 0;
+}
 
-// // Overview:
-// //  Mark the offset/BY2BLK'th block dirty in file f.
-// int fat_file_dirty(struct File *f, u_int offset) {
-// 	int r;
-// 	u_int diskbno;
+// Overview:
+//  Find a file named 'name' in the directory 'dir'. If found, set *ent to it.
+//
+// Post-Condition:
+//  Return 0 on success, and set the pointer to the target file in `*file`.
+//  Return the corresponding error if an error occurs.
+int fat_dir_lookup(struct FATDIRENT *dir, char *name, struct FATDIRENT **ent) {
+	char encoded_name[20];
+	encoded_name[0] = '\0';
+	if (strlen(name) <= 12) {
+		int i;
+		for (i = 0; name[i] != '\0'; i++) encoded_name[i] = encode_char(name[i]);
+		encoded_name[i] = '\0';
+	}
 
-// 	if ((r = fat_file_map_block(f, offset / BY2BLK, &diskbno, 0)) < 0) {
-// 		return r;
-// 	}
+	uint32_t clus = dir->DIR_FstClusLO;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		if (clus == 0) {
+			// reading root
+			user_assert(entry_val == 0x0);
+			entry_val = 0xFFFF;
+		}
+		else {
+			try(get_fat_entry(clus, &entry_val));
+		}
 
-// 	return fat_dirty_block(diskbno);
-// }
+		void *va;
+		if (!is_clus_mapped(clus, (uint32_t *)(&va))) {
+			try(alloc_fat_file_space(clus, fatDisk.BytsPerClus, (uint32_t *)(&va)));
+			// we assume all mapped cluster is read to memory
+			try(read_disk_fat_cluster(clus, va));
+		}
 
-// // Overview:
-// //  Find a file named 'name' in the directory 'dir'. If found, set *file to it.
-// //
-// // Post-Condition:
-// //  Return 0 on success, and set the pointer to the target file in `*file`.
-// //  Return the underlying error if an error occurs.
-// int fat_dir_lookup(struct File *dir, char *name, struct File **file) {
-// 	// int r;
-// 	// Step 1: Calculate the number of blocks in 'dir' via its size.
-// 	u_int nblock;
-// 	/* Exercise 5.8: Your code here. (1/3) */
+		u_int max_ent_cnt = (va == (void *)FATROOTVA) ? fatBPB.BPB_RootEntCnt : (fatDisk.BytsPerClus / BY2DIRENT);
 
-// 	nblock = dir->f_size / BY2BLK;
+		struct FATDIRENT *ient;
+		struct FATDIRENT *stent = (struct FATDIRENT *)va;
+		char name_buf[MAXNAMELEN];
+		for (ient = stent; ient - stent < max_ent_cnt; ient++) {
+			if (ient->DIR_Name[0] == 0x0) {
+				break;
+			}
+			if (ient->DIR_Name[0] == FAT_DIR_ENTRY_FREE) {
+				continue;
+			}
+			struct FATDIRENT *nxtent;
+			try(fat_get_full_name(ient, name_buf, &nxtent));
+			// debugf("found name %s encoded name %s\n", name_buf, encoded_name);
+			if (strcmp(name_buf, name) == 0 || strcmp(name_buf, encoded_name) == 0) {
+				*ent = nxtent - 1;
+				return 0;
+			}
+			ient = nxtent - 1;
+		}
+	}
 
-// 	// Step 2: Iterate through all blocks in the directory.
-// 	for (int i = 0; i < nblock; i++) {
-// 		// Read the i'th block of 'dir' and get its address in 'blk' using 'file_get_block'.
-// 		void *blk;
-// 		/* Exercise 5.8: Your code here. (2/3) */
+	return -E_FAT_NOT_FOUND;
+}
 
-// 		try(fat_file_get_block(dir, i, &blk));
+// Overview:
+//  Alloc "count" number of new FATDIRENT structures under specified directory. 
+// 	we must give continue entries so file will be set to first start of 
+//	a set of entries that satisfy our request
+int fat_dir_alloc_files(struct FATDIRENT *dir, struct FATDIRENT **file, u_int count) {
+	// we can't handle cross-cluster long name dirs
+	user_assert(count <= (fatDisk.BytsPerClus / BY2DIRENT));
 
-// 		struct File *files = (struct File *)blk;
+	uint32_t clus = dir->DIR_FstClusLO;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		if (clus == 0) {
+			// reading root
+			user_assert(entry_val == 0x0);
+			entry_val = 0xFFFF;
+		}
+		else {
+			try(get_fat_entry(clus, &entry_val));
+		}
 
-// 		// Find the target among all 'File's in this block.
-// 		for (struct File *f = files; f < files + FILE2BLK; ++f) {
-// 			// Compare the file name against 'name' using 'strcmp'.
-// 			// If we find the target file, set '*file' to it and set up its 'f_dir'
-// 			// field.
-// 			/* Exercise 5.8: Your code here. (3/3) */
+		void *va;
+		if (!is_clus_mapped(clus, (uint32_t *)(&va))) {
+			try(alloc_fat_file_space(clus, fatDisk.BytsPerClus, (uint32_t *)(&va)));
+			// we assume all mapped cluster is read to memory
+			try(read_disk_fat_cluster(clus, va));
+		}
 
-// 			if (strcmp(f->f_name, name) == 0) {
-// 				*file = f;
-// 				f->f_dir = dir;
-// 				return 0;
-// 			}
-// 		}
-// 	}
+		u_int max_ent_cnt = (va == (void *)FATROOTVA) ? fatBPB.BPB_RootEntCnt : (fatDisk.BytsPerClus / BY2DIRENT);
 
-// 	return -E_NOT_FOUND;
-// }
+		struct FATDIRENT *ient;
+		struct FATDIRENT *stent = (struct FATDIRENT *)va;
+		u_int continuous_cnt = 0;
+		for (ient = stent; ient - stent < max_ent_cnt; ient++) {
+			if (ient->DIR_Name[0] == 0x0) {
+				if (max_ent_cnt - (ient - stent) + continuous_cnt >= count) {
+					*file = ient - continuous_cnt;
+					return 0;
+				}
+				else {
+					// if rest space can't satisfy our request, we set all dir remain
+					// as empty and alloc a new cluster
+					ient->DIR_Name[0] = FAT_DIR_ENTRY_FREE;
+					continue;
+				}
+			}
+			if (ient->DIR_Name[0] == FAT_DIR_ENTRY_FREE) {
+				continuous_cnt++;
+				if (continuous_cnt >= count) {
+					*file = ient - continuous_cnt + 1;
+					return 0;
+				}
+			}
+			else {
+				continuous_cnt = 0;
+			}
+		}
+	}
 
-// // Overview:
-// //  Alloc a new File structure under specified directory. Set *file
-// //  to point at a free File structure in dir.
-// int fat_dir_alloc_file(struct File *dir, struct File **file) {
-// 	int r;
-// 	u_int nblock, i, j;
-// 	void *blk;
-// 	struct File *f;
+	// cannot find any satisfying part, alloc a new clusters
+	clus = dir->DIR_FstClusLO;
+	u_int new_clus;
+	try(expand_fat_cluster_entries(&clus, 1, &new_clus));
+	void *va;
+	try(alloc_fat_file_space(new_clus, fatDisk.BytsPerClus, (uint32_t *)(&va)));
+	*file = (struct FATDIRENT *)va;
 
-// 	nblock = dir->f_size / BY2BLK;
-
-// 	for (i = 0; i < nblock; i++) {
-// 		// read the block.
-// 		if ((r = fat_file_get_block(dir, i, &blk)) < 0) {
-// 			return r;
-// 		}
-
-// 		f = blk;
-
-// 		for (j = 0; j < FILE2BLK; j++) {
-// 			if (f[j].f_name[0] == '\0') { // found free File structure.
-// 				*file = &f[j];
-// 				return 0;
-// 			}
-// 		}
-// 	}
-
-// 	// no free File structure in exists data block.
-// 	// new data block need to be created.
-// 	dir->f_size += BY2BLK;
-// 	if ((r = fat_file_get_block(dir, i, &blk)) < 0) {
-// 		return r;
-// 	}
-// 	f = blk;
-// 	*file = &f[0];
-
-// 	return 0;
-// }
+	return 0;
+}
 
 // // Overview:
 // //  Skip over slashes.
@@ -1033,6 +1247,13 @@ void fat_fs_init(void) {
 // 	return 0;
 // }
 
+void debug_print_date(uint16_t date) {
+	debugf("%04u-%02u-%02u", ((date & 0xFE00) >> 9) + 1980, (date & 0x1E0) >> 5, (date & 0x1F));
+}
+
+void debug_print_time(uint16_t time) {
+	debugf("%02u:%02u:%02u", (time & 0xF800) >> 11, (time & 0x7E0) >> 5, (time & 0x1F) * 2);
+}
 
 void debug_print_fatBPB() {
 	char tmp_buf[32];
@@ -1041,6 +1262,9 @@ void debug_print_fatBPB() {
 	memset(tmp_buf, 0, 32);
 	memcpy(tmp_buf, fatBPB.BS_OEMName, 8);
 	debugf("OEMName: %s\n", tmp_buf);
+	debugf("OEMName: ");
+	for (int i = 0; i < 8; i++) debugf("0x%02X ", fatBPB.BS_OEMName[i]);
+	debugf("\n");
 	debugf("BytsPerSec: %d\n", fatBPB.BPB_BytsPerSec);
 	debugf("SecPerClus: %d\n", fatBPB.BPB_SecPerClus);
 	debugf("RsvdSecCnt: %d\n", fatBPB.BPB_RsvdSecCnt);
@@ -1077,8 +1301,16 @@ void debug_print_fatDisk() {
 	debugf("====== end of fat Disk ======\n");
 }
 
-void debug_print_short_dir(struct FATDIRENT *dir) {
-	debugf("========= printing fat short directory =========\n");
+void debug_print_short_dir(struct FATDIRENT *dir, uint32_t num){
+	if (dir->DIR_Name[0] == 0x0) {
+		debugf("========= end of all short directories ================\n");
+		return;
+	}
+	if (dir->DIR_Name[0] == FAT_DIR_ENTRY_FREE) {
+		debugf("========= empty fat short directory No.%03d============\n", num);
+		return;
+	}
+	debugf("========= printing fat short directory No.%03d=========\n", num);
 	debugf("dir name: ");
 	for (int i = 0; i < 11; i++) debugf("%c", dir->DIR_Name[i]);
 	debugf("\ndir attr: 0x%02X\n", dir->DIR_Attr);
@@ -1090,10 +1322,10 @@ void debug_print_short_dir(struct FATDIRENT *dir) {
 	debugf("dir fst clus hi: 0x%04X\n", dir->DIR_FstClusHI);
 	debugf("dir wrt time: "); debug_print_time(dir->DIR_WrtTime);
 	debugf("\ndir wrt date: "); debug_print_date(dir->DIR_WrtDate);
-	debugf("\ndir fst clus lo: 0x%04X\n", dir->DIR_FstClusLO);
+	debugf("\ndir fst clus lo: 0x%04X = %d\n", dir->DIR_FstClusLO, dir->DIR_FstClusLO);
 	debugf("dir file size: 0x%08X\n", dir->DIR_FileSize);
-	debugf("corresponding long chksum : 0x%02X\n", generate_long_file_check_sum(dir->DIR_Name));
-	debugf("========= end of fat short directory ===========\n");
+	debugf("corresponding long chksum : 0x%02X\n", generate_long_file_check_sum((char *)dir->DIR_Name));
+	debugf("========= end of fat short directory ==================\n");
 }
 
 void debug_print_long_dir(struct FATLONGNAME *dir) {
@@ -1110,17 +1342,34 @@ void debug_print_long_dir(struct FATLONGNAME *dir) {
 	debugf("========= end of fat long directory ===========\n");
 }
 
-int debug_print_file_as_dir_entry(uint32_t clus, char *buf) {
+int debug_print_file_as_dir_entry(char *buf) {
 	struct FATDIRENT *fatDir = (struct FATDIRENT *)buf;
+	uint32_t cnt = 0;
 	while (fatDir->DIR_Name[0] != 0) {
 		fatDir = (struct FATDIRENT *)buf;
 		if ((fatDir->DIR_Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
 			// debug_print_short_dir(fatDir);
 			debug_print_long_dir((struct FATLONGNAME *)fatDir);
 		}
-		else
-			debug_print_short_dir(fatDir);
+		else {
+			debug_print_short_dir(fatDir, cnt);
+			cnt++;
+		}
 		buf += sizeof(struct FATDIRENT);
 	}
 	return 0;
+}
+
+void debug_print_fatsec(uint32_t secno) {
+	unsigned char buf[1024];
+	ide_read(DISKNO, secno, buf, 1);
+	debugf("========= printing fat section %u =========\n", secno);
+	for (int i = 0; i < 32; i++) {
+		debugf("0x%4x-0x%4x: ", i*16, i*16+15);
+		for (int j = 0; j < 16; j++) {
+			debugf("%02X ", buf[i*16+j]);
+		}
+		debugf("\n");
+	}
+	debugf("========= end of fat section %u ===========\n", secno);
 }
