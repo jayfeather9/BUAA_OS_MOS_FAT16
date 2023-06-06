@@ -12,9 +12,26 @@
 #define BY2DIRENT 32
 #define BY2FILE 256
 
-// File types
-#define FTYPE_REG 0 // Regular file
-#define FTYPE_DIR 1 // Directory
+#define FAT_MAX_CLUS_SIZE 8192
+#define FAT_MAX_ROOT_SEC_NUM 128
+#define FAT_MAX_ROOT_BYTES 65536
+
+#define FAT_ATTR_READ_ONLY 0x01
+#define FAT_ATTR_HIDDEN 0x02
+#define FAT_ATTR_SYSTEM 0x04
+#define FAT_ATTR_VOLUME_ID 0x08
+#define FAT_ATTR_DIRECTORY 0x10
+#define FAT_ATTR_ARCHIVE 0x20
+#define FAT_ATTR_LONG_NAME 0x0F
+// defined as (READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID)
+#define FAT_ATTR_LONG_NAME_MASK 0x3F
+// defined as (READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID | DIRECTORY | ARCHIVE)
+
+// upper 2 bits of attr are reserved and should be 0
+
+#define FAT_LAST_LONG_ENTRY 0x40
+
+#define FAT_DIR_ENTRY_FREE 0xE5
 
 // File system super-block (both in-memory and on-disk)
 
@@ -84,12 +101,6 @@ struct FatFile {
 	struct FATDIRENT dir_ent; // dir entry
 	struct FatFile *f_dir;
 	char f_pad[BY2FILE - MAXNAMELEN - BY2DIRENT - sizeof(void *)];
-} __attribute__((aligned(4), packed));
-
-struct FatSuper {
-	uint32_t s_magic;   // Magic number: FS_MAGIC
-	uint32_t s_nblocks; // Total number of blocks on disk
-	struct FatFile s_root; // Root directory node
 };
 
 struct FatSpace {
@@ -99,9 +110,12 @@ struct FatSpace {
 	struct FatSpace *nxt, *prev;
 };
 
-#define E_FAT_NOT_FOUND 0x1000
-#define E_FAT_VA_FULL 0x1001
-#define E_FAT_CLUS_UNMAPPED 0x1002
-#define E_FAT_BAD_CLUSTER 0x1003
+#define E_FAT_NOT_FOUND 1000
+#define E_FAT_VA_FULL 1001
+#define E_FAT_CLUS_UNMAPPED 1002
+#define E_FAT_BAD_CLUSTER 1003
+#define E_FAT_ENT_DIFF 1004
+#define E_FAT_ACCESS_FREE_CLUS 1005
+#define E_FAT_CLUSTER_FULL 1006
 
 #endif // _FS_H_

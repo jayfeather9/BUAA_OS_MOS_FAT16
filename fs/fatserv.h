@@ -11,7 +11,8 @@
  * server's address space at DISKMAP+(n*BY2BLK). */
 #define FATVAMIN 0x10000000
 #define FATVAMAX 0x50000000
-#define FATVARANGE FATVAMAX - FATVAMIN
+#define FATVARANGE (FATVAMAX - FATVAMIN)
+#define FATROOTVA (FATVAMAX + 0x1000)
 
 #define FAT_MAX_CLUS_SIZE 8192
 #define FAT_MAX_SPACE_SIZE FAT_MAX_CLUS_SIZE
@@ -21,15 +22,19 @@ extern void ide_read(u_int diskno, u_int secno, void *dst, u_int nsecs);
 extern void ide_write(u_int diskno, u_int secno, void *src, u_int nsecs);
 
 /* fatfs.c */
-int fat_file_open(char *path, struct File **pfile);
-int fat_file_get_block(struct File *f, u_int blockno, void **pblk);
-int fat_file_set_size(struct File *f, u_int newsize);
-void fat_file_close(struct File *f);
-int fat_file_remove(char *path);
-int fat_file_dirty(struct File *f, u_int offset);
-void fat_file_flush(struct File *);
+// int fat_file_open(char *path, struct File **pfile);
+// int fat_file_get_block(struct File *f, u_int blockno, void **pblk);
+// int fat_file_set_size(struct File *f, u_int newsize);
+// void fat_file_close(struct File *f);
+// int fat_file_remove(char *path);
+// int fat_file_dirty(struct File *f, u_int offset);
+// void fat_file_flush(struct File *);
 
 void fat_fs_init(void);
-void fat_fs_sync(void);
-int fat_map_block(u_int);
-int fat_alloc_block(void);
+void debug_print_fatBPB();
+void debug_print_fatDisk();
+int debug_print_file_as_dir_entry(uint32_t clus, char *buf);
+
+// void fat_fs_sync(void);
+// int fat_map_block(u_int);
+// int fat_alloc_block(void);
