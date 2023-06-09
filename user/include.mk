@@ -19,7 +19,8 @@ ifeq ($(call lab-ge,5), true)
 			fsipc.o \
 			console.o \
 			fprintf.o \
-			fatipc.o
+			fatipc.o \
+			fatfile.o
 
 endif
 

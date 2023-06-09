@@ -104,7 +104,7 @@ void fat_serve_open(u_int envid, struct Fatreq_open *rq) {
 	ff->f_fileid = o->o_fileid;
 	o->o_mode = rq->req_omode;
 	ff->f_fd.fd_omode = o->o_mode;
-	ff->f_fd.fd_dev_id = devfile.dev_id;
+	ff->f_fd.fd_dev_id = devfat.dev_id;
 
 	ipc_send(envid, 0, o->o_ff, PTE_D | PTE_LIBRARY);
 }

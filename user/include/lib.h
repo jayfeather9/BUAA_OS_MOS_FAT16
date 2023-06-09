@@ -136,6 +136,13 @@ int remove(const char *path);
 int ftruncate(int fd, u_int size);
 int sync(void);
 
+// fatfile.c
+int fat_open(const char *path, int mode);
+int fat_read_map(int fd, u_int offset, void **blk);
+int fat_remove(const char *path);
+int fat_truncate(int fd, u_int size);
+int fat_sync(void);
+
 #define user_assert(x)                                                                             \
 	do {                                                                                       \
 		if (!(x))                                                                          \

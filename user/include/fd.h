@@ -70,5 +70,6 @@ int num2fd(int fd);
 extern struct Dev devcons;
 extern struct Dev devfile;
 extern struct Dev devpipe;
+extern struct Dev devfat;
 
 #endif

@@ -3,7 +3,7 @@
 #include <lib.h>
 #include <mmu.h>
 
-static struct Dev *devtab[] = {&devfile, &devcons,
+static struct Dev *devtab[] = {&devfat, &devfile, &devcons,
 #if !defined(LAB) || LAB >= 6
 			       &devpipe,
 #endif
