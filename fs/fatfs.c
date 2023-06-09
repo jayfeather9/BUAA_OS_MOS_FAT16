@@ -95,7 +95,9 @@ int insert_space(uint32_t st_va, uint32_t size) {
 //  if va set, va will be set to the va of the stating va for the cluster
 int is_clus_mapped(uint32_t clus, uint32_t *va) {
 	if (clus == 0) {
-		*va = (uint32_t)FATROOTVA;
+		if (va) {
+			*va = (uint32_t)FATROOTVA;
+		}
 		return 1;
 	}
 	struct FatSpace *fspace;
@@ -422,6 +424,51 @@ int free_fat_cluster_entries(uint32_t clus) {
 	}
 	return 0;
 }
+
+// Overview:
+//  shrink fat cluster by "count" numbers
+int shrink_fat_cluster_entries(uint32_t *pclus, uint32_t count) {
+	if (count == 0) {
+		return -E_FAT_INVAL;
+	}
+	u_int cnt = 0;
+	u_int clus = *pclus;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		try(get_fat_entry(clus, &entry_val));
+		cnt++;
+	}
+	if (cnt < count) {
+		return -E_FAT_INVAL;
+	}
+	u_int remain_size = cnt - count;
+	if (remain_size == 0) {
+		*pclus = 0;
+		return -E_FAT_SHRINK_ALL;
+	}
+	cnt = 0;
+	clus = *pclus;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		try(get_fat_entry(clus, &entry_val));
+		cnt++;
+		if (cnt == remain_size) {
+			try(set_fat_entry(clus, 0xFFFF));
+			free_fat_cluster_entries(entry_val);
+			return 0;
+		}
+	}
+	user_panic("shouldn\'t run to here.");
+	return -E_FAT_INVAL;
+}
+
+int query_fat_clusters(uint32_t clus, uint32_t *pnum) {
+	u_int cnt = 0;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		try(get_fat_entry(clus, &entry_val));
+		cnt++;
+	}
+	*pnum = cnt;
+	return 0;
+}
 // end of fat entry managing part
 // =============================================================================
 
@@ -437,9 +484,9 @@ int free_fat_cluster_entries(uint32_t clus) {
 // Returns: Sum An 8-bit unsigned checksum of the array pointed
 // to by pFcbName.
 //------------------------------------------------------------------------------
-char generate_long_file_check_sum(char *pFcbName) {
+char generate_long_file_check_sum(unsigned char *pFcbName) {
 	short FcbNameLen;
-	char Sum;
+	unsigned char Sum;
 	Sum = 0;
 	for (FcbNameLen=11; FcbNameLen!=0; FcbNameLen--) {
 		// NOTE: The operation is an unsigned char rotate right
@@ -456,6 +503,82 @@ char encode_char(char ch) {
 			ch == '!' || ch == '(' || ch == ')' || ch == '{' || ch == '}' || ch == '^' || ch == '#' ||
 			ch == '&' || ch == '.') return ch;
 	return '_';
+}
+
+int encode_short_name(struct FATDIRENT *sdir, char *file_name, char pad_char) {
+	u_int name_len = 0, ext_len = 0;
+	char *fp = file_name;
+	while (*fp != '.' && *fp != '\0') fp++;
+	name_len = fp - file_name;
+	if (*fp == '.') {
+		while (*fp != '\0') fp++;
+		ext_len = (fp - file_name) - name_len - 1;
+	}
+	for (int i = 0; i < 11; i++) sdir->DIR_Name[i] = 0;
+	if (name_len > 8 || ext_len > 3) {
+		sdir->DIR_Name[6] = '~';
+		sdir->DIR_Name[7] = pad_char;
+	}
+	for (int i = 0; i < 8; i++) {
+		if (!sdir->DIR_Name[i]) sdir->DIR_Name[i] = i < name_len ? encode_char(file_name[i]) : ' ';
+	}
+	for (int i = 0; i < 3; i++) {
+		if (!sdir->DIR_Name[i+8]) sdir->DIR_Name[i+8] = i < ext_len ? encode_char(file_name[name_len + 1 + i]) : ' ';
+	}
+	// debugf("name_len %u, ext_len %u\n", name_len, ext_len);
+	return 0;
+}
+
+int encode_long_name(char *file_name, struct FATLONGNAME *ldirs, u_int count) {
+	int is_writing_name = 1;
+	ldirs = ldirs + count - 1;
+	struct FATLONGNAME *stldirs = ldirs;
+	user_assert(count < FAT_MAX_ENT_NUM);
+	for (int n = count; n > 0; n--, ldirs--) {
+		if (!is_writing_name) {
+			break;
+		}
+		for (int i = 0; i < 10; i += 2) {
+			if (!is_writing_name) {
+				ldirs->LDIR_Name1[i] = 0xFF;
+				ldirs->LDIR_Name1[i+1] = 0xFF;
+			} else if (*file_name == '\0') {
+				is_writing_name = 0;
+				ldirs->LDIR_Name1[i] = 0;
+				ldirs->LDIR_Name1[i+1] = 0;
+			} else {
+				ldirs->LDIR_Name1[i] = *file_name++;
+				ldirs->LDIR_Name1[i+1] = 0;
+			}
+		}
+		for (int i = 0; i < 12; i += 2) {
+			if (!is_writing_name) {
+				ldirs->LDIR_Name2[i] = 0xFF;
+				ldirs->LDIR_Name2[i+1] = 0xFF;
+			} else if (*file_name == '\0') {
+				is_writing_name = 0;
+				ldirs->LDIR_Name2[i] = 0;
+				ldirs->LDIR_Name2[i+1] = 0;
+			} else {
+				ldirs->LDIR_Name2[i] = *file_name++;
+				ldirs->LDIR_Name2[i+1] = 0;
+			}
+		}
+		for (int i = 0; i < 4; i += 2) {
+			if (!is_writing_name) {
+				ldirs->LDIR_Name3[i] = 0xFF;
+				ldirs->LDIR_Name3[i+1] = 0xFF;
+			} else if (*file_name == '\0') {
+				is_writing_name = 0;
+				ldirs->LDIR_Name3[i] = 0;
+				ldirs->LDIR_Name3[i+1] = 0;
+			} else {
+				ldirs->LDIR_Name3[i] = *file_name++;
+				ldirs->LDIR_Name3[i+1] = 0;
+			}
+		}
+	}
+	return stldirs - ldirs;
 }
 
 // Overview:
@@ -652,7 +775,7 @@ void fat_fs_init(void) {
 	user_assert(fatDisk.RootDirSectors <= FAT_MAX_ROOT_SEC_NUM);
 	user_assert(fatDisk.RootDirSectors * fatBPB.BPB_BytsPerSec <= FAT_MAX_ROOT_BYTES);
 	read_root();
-	fat_root_dir_ent.DIR_Attr = FAT_ATTR_DIRECTORY;
+	fat_root_dir_ent.DIR_Attr = FAT_ATTR_VOLUME_ID | FAT_ATTR_DIRECTORY;
 	fat_root_dir_ent.DIR_FileSize = 0;
 	fat_root_dir_ent.DIR_FstClusLO = 0;
 	fat_space_init();
@@ -880,7 +1003,8 @@ int fat_get_full_name(struct FATDIRENT *dir, char *buf, struct FATDIRENT **nxtdi
 // Post-Condition:
 //  Return 0 on success, and set the pointer to the target file in `*file`.
 //  Return the corresponding error if an error occurs.
-int fat_dir_lookup(struct FATDIRENT *dir, char *name, struct FATDIRENT **ent) {
+// 	If pclus is set, set *pclus to where ent is in
+int fat_dir_lookup(struct FATDIRENT *dir, char *name, struct FATDIRENT **ent, uint32_t *pclus) {
 	char encoded_name[20];
 	encoded_name[0] = '\0';
 	if (strlen(name) <= 12) {
@@ -924,6 +1048,9 @@ int fat_dir_lookup(struct FATDIRENT *dir, char *name, struct FATDIRENT **ent) {
 			// debugf("found name %s encoded name %s\n", name_buf, encoded_name);
 			if (strcmp(name_buf, name) == 0 || strcmp(name_buf, encoded_name) == 0) {
 				*ent = nxtent - 1;
+				if (pclus) {
+					*pclus = clus;
+				}
 				return 0;
 			}
 			ient = nxtent - 1;
@@ -1001,258 +1128,293 @@ int fat_dir_alloc_files(struct FATDIRENT *dir, struct FATDIRENT **file, u_int co
 	return 0;
 }
 
-// // Overview:
-// //  Skip over slashes.
-// char *fat_skip_slash(char *p) {
-// 	while (*p == '/') {
-// 		p++;
-// 	}
-// 	return p;
-// }
-
-// // Overview:
-// //  Evaluate a path name, starting at the root.
-// //
-// // Post-Condition:
-// //  On success, set *pfile to the file we found and set *pdir to the directory
-// //  the file is in.
-// //  If we cannot find the file but find the directory it should be in, set
-// //  *pdir and copy the final path element into lastelem.
-// int fat_walk_path(char *path, struct File **pdir, struct File **pfile, char *lastelem) {
-// 	char *p;
-// 	char name[MAXNAMELEN];
-// 	struct File *dir, *file;
-// 	int r;
-
-// 	// start at the root.
-// 	path = fat_skip_slash(path);
-// 	file = &super->s_root;
-// 	dir = 0;
-// 	name[0] = 0;
-
-// 	if (pdir) {
-// 		*pdir = 0;
-// 	}
-
-// 	*pfile = 0;
-
-// 	// find the target file by name recursively.
-// 	while (*path != '\0') {
-// 		dir = file;
-// 		p = path;
-
-// 		while (*path != '/' && *path != '\0') {
-// 			path++;
-// 		}
-
-// 		if (path - p >= MAXNAMELEN) {
-// 			return -E_BAD_PATH;
-// 		}
-
-// 		memcpy(name, p, path - p);
-// 		name[path - p] = '\0';
-// 		path = fat_skip_slash(path);
-// 		if (dir->f_type != FTYPE_DIR) {
-// 			return -E_NOT_FOUND;
-// 		}
-
-// 		if ((r = fat_dir_lookup(dir, name, &file)) < 0) {
-// 			if (r == -E_NOT_FOUND && *path == '\0') {
-// 				if (pdir) {
-// 					*pdir = dir;
-// 				}
-
-// 				if (lastelem) {
-// 					strcpy(lastelem, name);
-// 				}
-
-// 				*pfile = 0;
-// 			}
-
-// 			return r;
-// 		}
-// 	}
-
-// 	if (pdir) {
-// 		*pdir = dir;
-// 	}
-
-// 	*pfile = file;
-// 	return 0;
-// }
-
-// // Overview:
-// //  Open "path".
-// //
-// // Post-Condition:
-// //  On success set *pfile to point at the file and return 0.
-// //  On error return < 0.
-// int fat_file_open(char *path, struct File **file) {
-// 	return fat_walk_path(path, 0, file, 0);
-// }
-
-// // Overview:
-// //  Create "path".
-// //
-// // Post-Condition:
-// //  On success set *file to point at the file and return 0.
-// //  On error return < 0.
-// int fat_file_create(char *path, struct File **file) {
-// 	char name[MAXNAMELEN];
-// 	int r;
-// 	struct File *dir, *f;
-
-// 	if ((r = fat_walk_path(path, &dir, &f, name)) == 0) {
-// 		return -E_FILE_EXISTS;
-// 	}
-
-// 	if (r != -E_NOT_FOUND || dir == 0) {
-// 		return r;
-// 	}
-
-// 	if (fat_dir_alloc_file(dir, &f) < 0) {
-// 		return r;
-// 	}
-
-// 	strcpy(f->f_name, name);
-// 	*file = f;
-// 	return 0;
-// }
-
-// // Overview:
-// //  Truncate file down to newsize bytes.
-// //
-// //  Since the file is shorter, we can free the blocks that were used by the old
-// //  bigger version but not by our new smaller self. For both the old and new sizes,
-// //  figure out the number of blocks required, and then clear the blocks from
-// //  new_nblocks to old_nblocks.
-// //
-// //  If the new_nblocks is no more than NDIRECT, free the indirect block too.
-// //  (Remember to clear the f->f_indirect pointer so you'll know whether it's valid!)
-// //
-// // Hint: use file_clear_block.
-// void fat_file_truncate(struct File *f, u_int newsize) {
-// 	u_int bno, old_nblocks, new_nblocks;
-
-// 	old_nblocks = f->f_size / BY2BLK + 1;
-// 	new_nblocks = newsize / BY2BLK + 1;
-
-// 	if (newsize == 0) {
-// 		new_nblocks = 0;
-// 	}
-
-// 	if (new_nblocks <= NDIRECT) {
-// 		for (bno = new_nblocks; bno < old_nblocks; bno++) {
-// 			fat_file_clear_block(f, bno);
-// 		}
-// 		if (f->f_indirect) {
-// 			fat_free_block(f->f_indirect);
-// 			f->f_indirect = 0;
-// 		}
-// 	} else {
-// 		for (bno = new_nblocks; bno < old_nblocks; bno++) {
-// 			fat_file_clear_block(f, bno);
-// 		}
-// 	}
-
-// 	f->f_size = newsize;
-// }
-
-// // Overview:
-// //  Set file size to newsize.
-// int fat_file_set_size(struct File *f, u_int newsize) {
-// 	if (f->f_size > newsize) {
-// 		fat_file_truncate(f, newsize);
-// 	}
-
-// 	f->f_size = newsize;
-
-// 	if (f->f_dir) {
-// 		fat_file_flush(f->f_dir);
-// 	}
-
-// 	return 0;
-// }
-
-// // Overview:
-// //  Flush the contents of file f out to disk.
-// //  Loop over all the blocks in file.
-// //  Translate the file block number into a disk block number and then
-// //  check whether that disk block is dirty. If so, write it out.
-// //
-// // Hint: use file_map_block, block_is_dirty, and write_block.
-// void fat_file_flush(struct File *f) {
-// 	// Your code here
-// 	u_int nblocks;
-// 	u_int bno;
-// 	u_int diskno;
-// 	int r;
-
-// 	nblocks = f->f_size / BY2BLK + 1;
-
-// 	for (bno = 0; bno < nblocks; bno++) {
-// 		if ((r = fat_file_map_block(f, bno, &diskno, 0)) < 0) {
-// 			continue;
-// 		}
-// 		if (fat_block_is_dirty(diskno)) {
-// 			fat_write_block(diskno);
-// 		}
-// 	}
-// }
-
-// // Overview:
-// //  Sync the entire file system.  A big hammer.
-// void fat_fs_sync(void) {
-// 	int i;
-// 	for (i = 0; i < super->s_nblocks; i++) {
-// 		if (fat_block_is_dirty(i)) {
-// 			fat_write_block(i);
-// 		}
-// 	}
-// }
-
-// // Overview:
-// //  Close a file.
-// void fat_file_close(struct File *f) {
-// 	// Flush the file itself, if f's f_dir is set, flush it's f_dir.
-// 	fat_file_flush(f);
-// 	if (f->f_dir) {
-// 		fat_file_flush(f->f_dir);
-// 	}
-// }
-
-// // Overview:
-// //  Remove a file by truncating it and then zeroing the name.
-// int fat_file_remove(char *path) {
-// 	int r;
-// 	struct File *f;
-
-// 	// Step 1: find the file on the disk.
-// 	if ((r = fat_walk_path(path, 0, &f, 0)) < 0) {
-// 		return r;
-// 	}
-
-// 	// Step 2: truncate it's size to zero.
-// 	fat_file_truncate(f, 0);
-
-// 	// Step 3: clear it's name.
-// 	f->f_name[0] = '\0';
-
-// 	// Step 4: flush the file.
-// 	fat_file_flush(f);
-// 	if (f->f_dir) {
-// 		fat_file_flush(f->f_dir);
-// 	}
-
-// 	return 0;
-// }
-
-void debug_print_date(uint16_t date) {
-	debugf("%04u-%02u-%02u", ((date & 0xFE00) >> 9) + 1980, (date & 0x1E0) >> 5, (date & 0x1F));
+// Overview:
+//  Skip over slashes.
+char *fat_skip_slash(char *p) {
+	while (*p == '/') {
+		p++;
+	}
+	return p;
 }
 
-void debug_print_time(uint16_t time) {
-	debugf("%02u:%02u:%02u", (time & 0xF800) >> 11, (time & 0x7E0) >> 5, (time & 0x1F) * 2);
+// Overview:
+//  Evaluate a path name, starting at the root.
+//
+// Post-Condition:
+//  On success, set *pfile to the file we found and set *pdir to the directory
+//  the file is in.
+//  If we cannot find the file but find the directory it should be in, set
+//  *pdir and copy the final path element into lastelem.
+//	if pclus is set, *pclus is set to where file is in
+int fat_walk_path(char *path, struct FATDIRENT **pdir, struct FATDIRENT **pent, char *lastelem, uint32_t *pclus) {
+	char *p;
+	char name[MAXNAMELEN];
+	struct FATDIRENT *dir, *ent;
+	int r;
+
+	// start at the root.
+	path = fat_skip_slash(path);
+	ent = &fat_root_dir_ent;
+	dir = 0;
+	name[0] = 0;
+
+	if (pdir) {
+		*pdir = 0;
+	}
+
+	*pent = 0;
+
+	// find the target file by name recursively.
+	while (*path != '\0') {
+		dir = ent;
+		p = path;
+
+		while (*path != '/' && *path != '\0') {
+			path++;
+		}
+
+		if (path - p >= MAXNAMELEN) {
+			return -E_FAT_BAD_PATH;
+		}
+
+		memcpy(name, p, path - p);
+		name[path - p] = '\0';
+		path = fat_skip_slash(path);
+		if ((dir->DIR_Attr & FAT_ATTR_DIRECTORY) != FAT_ATTR_DIRECTORY) {
+			return -E_FAT_NOT_FOUND;
+		}
+
+		if ((r = fat_dir_lookup(dir, name, &ent, pclus)) < 0) {
+			if (r == -E_FAT_NOT_FOUND && *path == '\0') {
+				if (pdir) {
+					*pdir = dir;
+				}
+
+				if (lastelem) {
+					strcpy(lastelem, name);
+				}
+
+				*pent = 0;
+			}
+
+			return r;
+		}
+	}
+
+	if (pdir) {
+		*pdir = dir;
+	}
+
+	*pent = ent;
+	return 0;
+}
+
+// Overview:
+//  Open "path".
+//
+// Post-Condition:
+//  On success set *pfile to point at the file and return 0.
+//  On error return < 0.
+int fat_file_open(char *path, struct FATDIRENT **file) {
+	return fat_walk_path(path, 0, file, 0, 0);
+}
+
+// Overview:
+//  Create a file or directory by which "path" specifies.
+//	But only if the prev part of "path" exists, from the front to the last slash
+//	This function will set correct create time and set other times same as create time
+//	Other fields in an entry like Attr and FstClusLO will all be set to 0
+//	which means you need to set them yourself after calling this function
+//	This function only modifies the directory entries, no alloc will be done
+//	We support long name, and this function will always create file/dir as long name
+//	Whether this file is a dir or not depend on how you set the rest of the entry values
+//
+// Post-Condition:
+//  On success set *pent to point at the file, if pdir is set, set *pdir to the dir and return 0.
+//  On error return < 0.
+int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir) {
+	char name[MAXNAMELEN];
+	int r;
+	struct FATDIRENT *dir, *stent, *sdir;
+	struct FATLONGNAME *ldirs;
+
+	if ((r = fat_walk_path(path, &dir, &stent, name, 0)) == 0) {
+		return -E_FAT_FILE_EXISTS;
+	}
+
+	if (r != -E_FAT_NOT_FOUND || dir == 0) {
+		return r;
+	}
+
+	uint32_t ldir_cnt = (strlen(name) + FAT_LONG_NAME_CHAR_CNT - 1) / FAT_LONG_NAME_CHAR_CNT;
+
+	if (fat_dir_alloc_files(dir, &stent, ldir_cnt + 1) < 0) {
+		return r;
+	}
+
+	sdir = stent + ldir_cnt;
+	ldirs = (struct FATLONGNAME *)stent;
+
+	encode_short_name(sdir, name, '1');
+	sdir->DIR_NTRes = 0;
+	sdir->DIR_Attr = 0;
+	sdir->DIR_FstClusHI = 0;
+	sdir->DIR_FstClusLO = 0;
+	sdir->DIR_FileSize = 0;
+	uint32_t year, month, date, hour, minute, second, timestamp, timeus;
+	timestamp = get_time(&timeus);
+	try(get_all_time(timestamp, &year, &month, &date, &hour, &minute, &second));
+	hour += 8; // This is UTC, we need CST
+	get_fat_time(year, month, date, hour, minute, second, timeus, 
+							 &sdir->DIR_CrtTimeTenth, &sdir->DIR_CrtTime, &sdir->DIR_CrtDate);
+	sdir->DIR_LstAccDate = sdir->DIR_CrtDate;
+	sdir->DIR_WrtTime = sdir->DIR_CrtTime;
+	sdir->DIR_WrtDate = sdir->DIR_CrtDate;
+
+	// debugf("encode = %u ldir_cnt = %u\n", encode_long_name(name, ldirs), ldir_cnt);
+	encode_long_name(name, ldirs, ldir_cnt);
+	uint8_t check_sum = generate_long_file_check_sum(sdir->DIR_Name);
+	for (int i = 0; i < ldir_cnt; i++) {
+		(ldirs + i)->LDIR_Attr = FAT_ATTR_LONG_NAME;
+		(ldirs + i)->LDIR_Chksum = check_sum;
+		(ldirs + i)->LDIR_FstClusLO = 0;
+		(ldirs + i)->LDIR_Type = 0;
+		(ldirs + i)->LDIR_Ord = (i == 0) ? ((ldir_cnt - i) | FAT_LAST_LONG_ENTRY) : ldir_cnt - i;
+	}
+
+	*pent = sdir;
+	if (pdir) {
+		*pdir = dir;
+	}
+	return 0;
+}
+
+// Overview:
+//  Truncate file "ent" down to newsize bytes.
+//
+//  Since the file is shorter, we can free the clusters that were used by the old
+//  bigger version but not by our new smaller self. For both the old and new sizes,
+//  figure out the number of blocks required, and then clear the blocks from
+//  new_nblocks to old_nblocks.
+void fat_file_truncate(struct FATDIRENT *ent, u_int newsize) {
+	// You can't truncate the root directory
+	user_assert(!is_bad_cluster(ent->DIR_FstClusLO));
+	// Calling this must make the file shorter
+	user_assert(newsize < ent->DIR_FileSize);
+
+	u_int new_clus_num = (newsize + fatDisk.BytsPerClus - 1) / fatDisk.BytsPerClus;
+	u_int old_clus_num = (ent->DIR_FileSize + fatDisk.BytsPerClus - 1) / fatDisk.BytsPerClus;
+	if (new_clus_num == old_clus_num) {
+		// cluster number won't be changed
+		ent->DIR_FileSize = newsize;
+		return;
+	}
+
+	u_int clus = ent->DIR_FstClusLO;
+	user_assert(!shrink_fat_cluster_entries(&clus, old_clus_num - new_clus_num));
+
+	ent->DIR_FileSize = newsize;
+}
+
+// Overview:
+//  Set file size to newsize.
+// 	If allocation is needed, do it.
+int fat_file_set_size(struct FATDIRENT *ent, u_int newsize, struct FATDIRENT *dir) {
+	// ent cannot be root
+	user_assert((ent->DIR_Attr & FAT_ATTR_VOLUME_ID) == 0);
+
+	if (ent->DIR_FileSize > newsize) {
+		fat_file_truncate(ent, newsize);
+	}
+	else {
+		u_int new_clus_num = (newsize + fatDisk.BytsPerClus - 1) / fatDisk.BytsPerClus;
+		u_int old_clus_num = (ent->DIR_FileSize + fatDisk.BytsPerClus - 1) / fatDisk.BytsPerClus;
+		if (new_clus_num > old_clus_num) {
+			u_int clus = ent->DIR_FileSize;
+			if (ent->DIR_FileSize == 0) {
+				user_assert(ent->DIR_FstClusLO == 0);
+				alloc_fat_cluster_entries(&clus, new_clus_num);
+				ent->DIR_FstClusLO = clus;
+			}
+			else {
+				expand_fat_cluster_entries(&clus, new_clus_num - old_clus_num, 0);
+			}
+		}
+	}
+
+	ent->DIR_FileSize = newsize;
+
+	fat_file_flush(dir, 1);
+
+	return 0;
+}
+
+// Overview:
+//  Flush the contents of file ent out to disk.
+//  Loop over all the clusters in file.
+//  check whether that disk cluster is dirty. If so, write it out.
+// 	if force is set, won't care about dirty or not.
+void fat_file_flush(struct FATDIRENT *ent, u_int force) {
+	if (ent->DIR_Attr & FAT_ATTR_VOLUME_ID) {
+		fat_write_clus(0);
+		return;
+	}
+	u_int clus = ent->DIR_FstClusLO;
+	for (uint32_t entry_val = 0x0; entry_val != 0xFFFF; clus = entry_val) {
+		user_assert(!get_fat_entry(clus, &entry_val));
+		if (fat_clus_is_dirty(clus) || force) {
+			fat_write_clus(clus);
+		}
+	}
+}
+
+// Overview:
+//  Sync the entire file system.  A big hammer.
+void fat_fs_sync(void) {
+	u_int clus;
+	fat_write_clus(0);
+	for (clus = 2; clus < fatDisk.CountofClusters; clus++) {
+		fat_write_clus(clus);
+	}
+}
+
+// Overview:
+//  Close a file. flush this file and if dir is set, flush dir.
+void fat_file_close(struct FATDIRENT *ent, struct FATDIRENT *dir) {
+	fat_file_flush(ent, 0);
+	if (dir) {
+		fat_file_flush(dir, 0);
+	}
+}
+
+// Overview:
+//  Remove a file.
+// 	Can actually remove anything including file and directory.
+int fat_file_remove(char *path) {
+	struct FATDIRENT *ent, *dir;
+	uint32_t clus_pos;
+
+	// Step 1: find the file on the disk.
+	try(fat_walk_path(path, &dir, &ent, 0, &clus_pos));
+
+	u_int clus = ent->DIR_FstClusLO;
+	// Step 2: free it's clusters.
+	try(free_fat_cluster_entries(clus));
+
+	// Step 3: clear it's name.
+	ent->DIR_Name[0] = FAT_DIR_ENTRY_FREE;
+	ent--;
+	while ((ent->DIR_Attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) {
+		ent->DIR_Name[0] = FAT_DIR_ENTRY_FREE;
+		ent--;
+	}
+
+	// Step 3.5: set dirty
+	fat_dirty_clus(clus_pos);
+
+	// Step 4: flush the directory.
+	fat_file_flush(dir, 0);
+	return 0;
 }
 
 void debug_print_fatBPB() {
@@ -1324,13 +1486,18 @@ void debug_print_short_dir(struct FATDIRENT *dir, uint32_t num){
 	debugf("\ndir wrt date: "); debug_print_date(dir->DIR_WrtDate);
 	debugf("\ndir fst clus lo: 0x%04X = %d\n", dir->DIR_FstClusLO, dir->DIR_FstClusLO);
 	debugf("dir file size: 0x%08X\n", dir->DIR_FileSize);
-	debugf("corresponding long chksum : 0x%02X\n", generate_long_file_check_sum((char *)dir->DIR_Name));
+	debugf("corresponding long chksum : 0x%02X\n", (uint8_t)generate_long_file_check_sum(dir->DIR_Name));
 	debugf("========= end of fat short directory ==================\n");
 }
 
 void debug_print_long_dir(struct FATLONGNAME *dir) {
+	if (dir->LDIR_Ord == FAT_DIR_ENTRY_FREE) {
+		debugf("========= empty fat short directory ============\n");
+		return;
+	}
 	debugf("========= printing fat long directory =========\n");
-	debugf("order: %u\n", (dir->LDIR_Ord & (uint8_t)(~0x40)));
+	// debugf("order: %u\n", (dir->LDIR_Ord & (uint8_t)(~0x40)));
+	debugf("order: 0x%02X\n", dir->LDIR_Ord);
 	debugf("dir name: ");
 	for (int i = 0; i < 10; i++) debugf("%c", dir->LDIR_Name1[i]);
 	for (int i = 0; i < 12; i++) debugf("%c", dir->LDIR_Name2[i]);

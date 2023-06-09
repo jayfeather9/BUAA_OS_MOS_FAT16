@@ -13,8 +13,10 @@
 #define BY2FILE 256
 
 #define FAT_MAX_CLUS_SIZE 8192
+#define FAT_MAX_SPACE_SIZE FAT_MAX_CLUS_SIZE
 #define FAT_MAX_ROOT_SEC_NUM 128
 #define FAT_MAX_ROOT_BYTES 65536
+#define FAT_MAX_ENT_NUM 63
 
 #define FAT_ATTR_READ_ONLY 0x01
 #define FAT_ATTR_HIDDEN 0x02
@@ -32,6 +34,8 @@
 #define FAT_LAST_LONG_ENTRY 0x40
 
 #define FAT_DIR_ENTRY_FREE 0xE5
+
+#define FAT_LONG_NAME_CHAR_CNT 13
 
 // File system super-block (both in-memory and on-disk)
 
@@ -119,5 +123,10 @@ struct FatSpace {
 #define E_FAT_CLUSTER_FULL 1006
 #define E_FAT_READ_FREE_DIR 1007
 #define E_FAT_BAD_DIR 1008
+#define E_FAT_BAD_PATH 1009
+#define E_FAT_FILE_EXISTS 1010
+#define E_FAT_INVAL 1011
+#define E_FAT_SHRINK_ALL 1012
+#define E_FAT_MAX_OPEN 1013
 
 #endif // _FATFS_H_

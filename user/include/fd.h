@@ -2,6 +2,7 @@
 #define _USER_FD_H_ 1
 
 #include <fs.h>
+#include <fatfs.h>
 
 #define debug 0
 
@@ -51,6 +52,13 @@ struct Filefd {
 	struct Fd f_fd;
 	u_int f_fileid;
 	struct File f_file;
+};
+
+// file descriptor + file
+struct Fatfd {
+	struct Fd f_fd;
+	u_int f_fileid;
+	struct FATDIRENT f_file;
 };
 
 int fd_alloc(struct Fd **fd);
