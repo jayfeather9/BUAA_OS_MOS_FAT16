@@ -1215,8 +1215,8 @@ int fat_walk_path(char *path, struct FATDIRENT **pdir, struct FATDIRENT **pent, 
 // Post-Condition:
 //  On success set *pfile to point at the file and return 0.
 //  On error return < 0.
-int fat_file_open(char *path, struct FATDIRENT **file) {
-	return fat_walk_path(path, 0, file, 0, 0);
+int fat_file_open(char *path, struct FATDIRENT **file, struct FATDIRENT **dir) {
+	return fat_walk_path(path, dir, file, 0, 0);
 }
 
 // Overview:
@@ -1286,6 +1286,8 @@ int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir
 	if (pdir) {
 		*pdir = dir;
 	}
+
+	fat_file_flush(dir, 1);
 	return 0;
 }
 

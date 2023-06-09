@@ -260,7 +260,7 @@ void serve(void) {
 int main() {
 	user_assert(sizeof(struct File) == BY2FILE);
 
-	debugf("FS is running\n");
+	debugf("FS is running.\n");
 
 	serve_init();
 	fs_init();
