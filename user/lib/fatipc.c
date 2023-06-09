@@ -11,7 +11,7 @@ u_char fatipcbuf[BY2PG] __attribute__((aligned(BY2PG)));
 //
 // Parameters:
 //  @type: request code, passed as the simple integer IPC value.
-//  @fsreq: page to send containing additional request data, usually fatipcbuf.
+//  @fatreq: page to send containing additional request data, usually fatipcbuf.
 //          Can be modified by server to return additional response info.
 //  @dstva: virtual address at which to receive reply page, 0 if none.
 //  @*perm: permissions of received page.
@@ -19,10 +19,10 @@ u_char fatipcbuf[BY2PG] __attribute__((aligned(BY2PG)));
 // Returns:
 //  0 if successful,
 //  < 0 on failure.
-static int fatipc(u_int type, void *fsreq, void *dstva, u_int *perm) {
+static int fatipc(u_int type, void *fatreq, void *dstva, u_int *perm) {
 	u_int whom;
 	// Our file system server must be the 2nd env.
-	ipc_send(envs[2].env_id, type, fsreq, PTE_D);
+	ipc_send(envs[2].env_id, type, fatreq, PTE_D);
 	return ipc_recv(&whom, dstva, perm);
 }
 
@@ -127,7 +127,19 @@ int fatipc_remove(const char *path) {
 
 	// Step 4: Send request to the server using 'fatipc'.
 	return fatipc(FATREQ_REMOVE, req, 0, 0);
+}
 
+int fatipc_create(const char *path) {
+	int path_len = strlen(path);
+	if (path_len == 0 || path_len > MAXPATHLEN) {
+		return -E_FAT_BAD_PATH;
+	}
+
+	struct Fatreq_create *req = (struct Fatreq_create *)fatipcbuf;
+
+	strcpy(req->req_path, path);
+
+	return fatipc(FATREQ_CREATE, req, 0, 0);
 }
 
 // Overview:
