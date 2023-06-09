@@ -9,7 +9,7 @@
 int main() {
 	debugf("test begin\n");	
 	// debug_print_fatsec(0);
-	fat_fs_init();
+	// fat_fs_init();
 	// debug_print_fatBPB();
 	// debug_print_fatDisk();
 	// debug_print_file_as_dir_entry((char *)FATROOTVA);
@@ -31,7 +31,7 @@ int main() {
 	// debug_print_short_dir(ent);
 	// fat_write_clus(0);
 
-	struct FATDIRENT *ent, *pent;
+	// struct FATDIRENT *ent, *pent;
 	// debugf("dir lookup rt val = %d\n", fat_dir_lookup(fat_get_root(), "test", &ent));
 	// pent = ent;
 	// debugf("starting read clus\n");
@@ -44,7 +44,7 @@ int main() {
 	// for (struct FATDIRENT *ient = files; ient - files < 64; ient++) {
 	// 	ient->DIR_Name[0] = 'a';
 	// }
-	void *va;
+	// void *va;
 	// u_int clus;
 	// get_fat_entry(pent->DIR_FstClusLO, &clus);
 	// is_clus_mapped(clus, (uint32_t *)&va);
@@ -87,5 +87,14 @@ int main() {
 	// debugf("walk path rt val = %d\n", fat_walk_path("/a.abcde", &pent, &ent, 0, 0));
 	// is_clus_mapped(pent->DIR_FstClusLO, &va);
 	// debug_print_file_as_dir_entry(va);
+
+	char buf[BY2PG];
+	u_int id = fat_open("/fs/fs.c", O_RDWR);
+	debugf("reading file...\n");
+	readn(id, buf, 500);
+	for (int i = 0; i < 500; i++) debugf("%c", buf[i]);
+	debugf("\n");
+	debugf("finished reading.");
+	close(id);
 	return 0;
 }

@@ -32,7 +32,7 @@ int fat_open(const char *path, int mode) {
 
 	// Step 2: Prepare the 'fd' using 'fatipc_open' in fatipc.c.
 	try(fatipc_open(path, mode, fd));
-
+	
 	// Step 3: Set 'va' to the address of the page where the 'fd''s data is cached, using
 	// 'fd2data'. Set 'size' and 'fileid' correctly with the value in 'fd' as a 'Filefd'.
 	char *va;

@@ -94,6 +94,10 @@ void fat_serve_open(u_int envid, struct Fatreq_open *rq) {
 		return;
 	}
 
+	if (rq->req_omode != O_RDONLY && (f->DIR_Attr & FAT_ATTR_READ_ONLY) == FAT_ATTR_READ_ONLY) {
+		user_panic("Opening read only file with incorrect permission");
+	}
+
 	// Save the file pointer.
 	o->o_file = f;
 	o->o_dir = dir;
