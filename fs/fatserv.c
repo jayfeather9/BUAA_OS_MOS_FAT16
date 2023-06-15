@@ -124,7 +124,7 @@ void fat_serve_map(u_int envid, struct Fatreq_map *rq) {
 		return;
 	}
 
-	fileclno = rq->req_offset / BY2BLK;
+	fileclno = rq->req_offset / fat_get_clus_size();
 
 	// if va is larger than the file size, will alloc more clusters until enough
 	if ((r = fat_file_get_clus(pOpen->o_file, fileclno, &va)) < 0) {
@@ -202,7 +202,7 @@ void fat_serve_create(u_int envid, struct Fatreq_create *rq) {
 	struct FATDIRENT *pent;
 	int r;
 
-	if ((r = fat_file_create(rq->req_path, &pent, 0)) < 0) {
+	if ((r = fat_file_create(rq->req_path, &pent, 0, rq->attr, rq->size)) < 0) {
 		ipc_send(envid, r, 0, 0);
 		return;
 	}
@@ -255,6 +255,10 @@ void serve(void) {
 		
 		case FATREQ_CREATE:
 			fat_serve_create(whom, (struct Fatreq_create *)REQVA);
+			break;
+		
+		case FATREQ_GETSIZE:
+			ipc_send(whom, fat_get_clus_size(), 0, 0);
 			break;
 
 		default:

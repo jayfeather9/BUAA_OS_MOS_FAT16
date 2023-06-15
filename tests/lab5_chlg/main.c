@@ -88,13 +88,42 @@ int main() {
 	// is_clus_mapped(pent->DIR_FstClusLO, &va);
 	// debug_print_file_as_dir_entry(va);
 
-	char buf[BY2PG];
-	u_int id = fat_open("/fs/fs.c", O_RDWR);
-	debugf("reading file...\n");
-	readn(id, buf, 500);
-	for (int i = 0; i < 500; i++) debugf("%c", buf[i]);
-	debugf("\n");
-	debugf("finished reading.");
-	close(id);
+	// char buf[BY2PG];
+	// u_int id = fat_open("/fs/fs.c", O_RDWR);
+	// debugf("reading file...\n");
+	// readn(id, buf, 500);
+	// for (int i = 0; i < 500; i++) debugf("%c", buf[i]);
+	// debugf("\n");
+	// for (int i = 0; i < 10; i++) buf[i] = 'b';
+	// seek(id, 0);
+	// write(id, buf, 10);
+	// debugf("finished reading.");
+	// close(id);
+	// id = fat_open("/fs/fs.c", O_RDWR);
+	// readn(id, buf, 500);
+	// for (int i = 0; i < 500; i++) debugf("%c", buf[i]);
+	// close(id);
+
+	fat_create("/abc.c", 0, 0);
+	fat_create("/bbb", FAT_ATTR_DIRECTORY, 128);
+	fat_create("/bbb/ccc.c", 0, 8192);
+	u_int fdccc = fat_open("/bbb/ccc.c", O_RDWR);
+	u_int file_size = 8192;
+	char buf[file_size];
+	for (int i = 0; i < 128; i++) {
+		for (int j = 0; j < 64; j++) {
+			if (j < 10) buf[i * 64 + j] = '0' + j;
+			else if (j < 36) buf[i * 64 + j] = 'a' - 10 + j;
+			else if (j < 62) buf[i * 64 + j] = 'A' - 36 + j;
+			else buf[i * 64 + j] = '\n';
+		}
+	}
+	write(fdccc, buf, file_size);
+	close(fdccc);
+	fdccc = fat_open("/bbb/ccc.c", O_RDWR);
+	readn(fdccc, buf, file_size);
+	for (int i = 0; i < file_size; i++)
+		debugf("%c", buf[i]);
+	close(fdccc);
 	return 0;
 }

@@ -14,6 +14,7 @@
 #define FATREQ_REMOVE 6
 #define FATREQ_SYNC 7
 #define FATREQ_CREATE 8
+#define FATREQ_GETSIZE 9
 
 struct Fatreq_open {
 	char req_path[MAXPATHLEN];
@@ -45,6 +46,8 @@ struct Fatreq_remove {
 
 struct Fatreq_create {
 	char req_path[MAXPATHLEN];
+	u_int attr;
+	u_int size;
 };
 
 #endif

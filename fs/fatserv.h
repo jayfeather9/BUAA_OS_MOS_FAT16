@@ -47,12 +47,13 @@ int fat_dir_lookup(struct FATDIRENT *dir, char *name, struct FATDIRENT **ent, ui
 int fat_dir_alloc_files(struct FATDIRENT *dir, struct FATDIRENT **file, u_int count);
 int fat_walk_path(char *path, struct FATDIRENT **pdir, struct FATDIRENT **pent, char *lastelem, uint32_t *pclus);
 int fat_file_open(char *path, struct FATDIRENT **file, struct FATDIRENT **dir);
-int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir);
+int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir, uint32_t attr, uint32_t size);
 void fat_file_truncate(struct FATDIRENT *ent, u_int newsize);
 int fat_file_set_size(struct FATDIRENT *ent, u_int newsize, struct FATDIRENT *dir);
 void fat_file_flush(struct FATDIRENT *ent, u_int force);
 void fat_fs_sync(void);
 void fat_file_close(struct FATDIRENT *ent, struct FATDIRENT *dir);
 int fat_file_remove(char *path);
+int fat_get_clus_size(void);
 
 #endif // _FATSERV_H_

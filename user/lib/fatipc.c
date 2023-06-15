@@ -26,6 +26,10 @@ static int fatipc(u_int type, void *fatreq, void *dstva, u_int *perm) {
 	return ipc_recv(&whom, dstva, perm);
 }
 
+int fatipc_getsize() {
+	return fatipc(FATREQ_GETSIZE, fatipcbuf, 0, 0);
+}
+
 // Overview:
 //  Send file-open request to the file server. Includes path and
 //  omode in request, sets *fileid and *size from reply.
@@ -129,7 +133,7 @@ int fatipc_remove(const char *path) {
 	return fatipc(FATREQ_REMOVE, req, 0, 0);
 }
 
-int fatipc_create(const char *path) {
+int fatipc_create(const char *path, u_int attr, u_int size) {
 	int path_len = strlen(path);
 	if (path_len == 0 || path_len > MAXPATHLEN) {
 		return -E_FAT_BAD_PATH;
@@ -138,6 +142,8 @@ int fatipc_create(const char *path) {
 	struct Fatreq_create *req = (struct Fatreq_create *)fatipcbuf;
 
 	strcpy(req->req_path, path);
+	req->attr = attr;
+	req->size = size;
 
 	return fatipc(FATREQ_CREATE, req, 0, 0);
 }

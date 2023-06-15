@@ -19,6 +19,15 @@ struct Dev devfat = {
     .dev_stat = fat_file_stat,
 };
 
+u_int clus_size = 0;
+
+void update_clus_size() {
+	if (clus_size == 0) {
+		clus_size = fatipc_getsize();
+		// debugf("updated clus size = %u\n", clus_size);
+	}
+}
+
 // Overview:
 //  Open a file (or directory) in fat disk.
 //
@@ -26,6 +35,7 @@ struct Dev devfat = {
 //  the file descriptor on success,
 //  the underlying error on failure.
 int fat_open(const char *path, int mode) {
+	update_clus_size();
 	// Step 1: Alloc a new 'Fd' using 'fd_alloc' in fd.c.
 	struct Fd *fd;
 	try(fd_alloc(&fd));
@@ -45,8 +55,10 @@ int fat_open(const char *path, int mode) {
 	size = ffd->f_file.DIR_FileSize;
 
 	// Step 4: Alloc pages and map the file content using 'fatipc_map'.
-	for (int i = 0; i < size; i += BY2PG) {
-		try(fatipc_map(fileid, i, va + i));
+	for (int i = 0; i < size; i += clus_size) {
+		void *clus_va = va + (i / clus_size * BY2PG);
+		try(fatipc_map(fileid, i, clus_va));
+		// debugf("mapped i = %u clus_va = %u\n", i, clus_va);
 	}
 
 	// Step 5: Return the number of file descriptor using 'fd2num'.
@@ -56,11 +68,11 @@ int fat_open(const char *path, int mode) {
 // Overview:
 //  Close a file descriptor
 int fat_file_close(struct Fd *fd) {
+	update_clus_size();
 	int r;
 	struct Fatfd *ffd;
 	void *va;
 	u_int size, fileid;
-	u_int i;
 
 	ffd = (struct Fatfd *)fd;
 	fileid = ffd->f_fileid;
@@ -70,7 +82,7 @@ int fat_file_close(struct Fd *fd) {
 	va = fd2data(fd);
 
 	// Tell the file server the dirty page.
-	for (i = 0; i < size; i += BY2PG) {
+	for (int i = 0; i < size; i += clus_size) {
 		fatipc_dirty(fileid, i);
 	}
 
@@ -84,8 +96,9 @@ int fat_file_close(struct Fd *fd) {
 	if (size == 0) {
 		return 0;
 	}
-	for (i = 0; i < size; i += BY2PG) {
-		if ((r = syscall_mem_unmap(0, (void *)(va + i))) < 0) {
+	for (int i = 0; i < size; i += clus_size) {
+		void *clus_va = va + (i / clus_size * BY2PG);
+		if ((r = syscall_mem_unmap(0, clus_va)) < 0) {
 			debugf("cannont unmap the file.\n");
 			return r;
 		}
@@ -98,7 +111,8 @@ int fat_file_close(struct Fd *fd) {
 //  are memory-mapped, this amounts to a memcpy() surrounded by a little red
 //  tape to handle the file size and seek pointer.
 static int fat_file_read(struct Fd *fd, void *buf, u_int n, u_int offset) {
-	u_int size;
+	update_clus_size();
+	u_int size, ori_n;
 	struct Fatfd *f;
 	f = (struct Fatfd *)fd;
 
@@ -113,14 +127,32 @@ static int fat_file_read(struct Fd *fd, void *buf, u_int n, u_int offset) {
 		n = size - offset;
 	}
 
-	memcpy(buf, (char *)fd2data(fd) + offset, n);
-	return n;
+	ori_n = n;
+	void *va = fd2data(fd);
+	for (int i = 0; i < size; i += clus_size) {
+		void *clus_va = va + (i / clus_size * BY2PG);
+		if (i + clus_size <= offset) {
+			continue;
+		}
+		u_int clus_offset = offset % clus_size;
+		u_int read_size = n < clus_size ? n : clus_size;
+		memcpy(buf, clus_va + clus_offset, read_size);
+		n -= read_size;
+		buf += read_size;
+		offset = 0;
+		if (n == 0) {
+			break;
+		}
+	}
+	// memcpy(buf, (char *)fd2data(fd) + offset, n);
+	return ori_n;
 }
 
 // Overview:
 //  Find the virtual address of the page that maps the file block
 //  starting at 'offset'.
 int fat_read_map(int fdnum, u_int offset, void **blk) {
+	update_clus_size();
 	int r;
 	void *va;
 	struct Fd *fd;
@@ -133,7 +165,7 @@ int fat_read_map(int fdnum, u_int offset, void **blk) {
 		return -E_INVAL;
 	}
 
-	va = fd2data(fd) + offset;
+	va = fd2data(fd) + (offset / clus_size * BY2PG) + offset % clus_size;
 
 	if (offset >= MAXFILESIZE) {
 		return -E_NO_DISK;
@@ -150,8 +182,9 @@ int fat_read_map(int fdnum, u_int offset, void **blk) {
 // Overview:
 //  Write 'n' bytes from 'buf' to 'fd' at the current seek position.
 static int fat_file_write(struct Fd *fd, const void *buf, u_int n, u_int offset) {
+	update_clus_size();
 	int r;
-	u_int tot;
+	u_int tot, ori_n;
 	struct Fatfd *f;
 
 	f = (struct Fatfd *)fd;
@@ -170,12 +203,31 @@ static int fat_file_write(struct Fd *fd, const void *buf, u_int n, u_int offset)
 		}
 	}
 
+	ori_n = n;
 	// Write the data
-	memcpy((char *)fd2data(fd) + offset, buf, n);
-	return n;
+	void *va = fd2data(fd);
+	for (int i = 0; i < f->f_file.DIR_FileSize; i += clus_size) {
+		void *clus_va = va + (i / clus_size * BY2PG);
+		if (i + clus_size <= offset) {
+			continue;
+		}
+		u_int clus_offset = offset % clus_size;
+		u_int read_size = n < clus_size ? n : clus_size;
+		memcpy(clus_va + clus_offset, buf, read_size);
+		// debugf("written to va %u for size %u buf[0] = %u\n", clus_va + clus_offset, read_size, *(char *)buf);
+		n -= read_size;
+		buf += read_size;
+		offset = 0;
+		if (n == 0) {
+			break;
+		}
+	}
+	// memcpy((char *)fd2data(fd) + offset, buf, n);
+	return ori_n;
 }
 
 static int fat_file_stat(struct Fd *fd, struct Stat *st) {
+	update_clus_size();
 	struct Fatfd *f;
 
 	f = (struct Fatfd *)fd;
@@ -198,6 +250,7 @@ static int fat_file_stat(struct Fd *fd, struct Stat *st) {
 // Overview:
 //  Truncate or extend an open file to 'size' bytes
 int fat_truncate(int fdnum, u_int size) {
+	update_clus_size();
 	int i, r;
 	struct Fd *fd;
 	struct Fatfd *f;
@@ -247,6 +300,7 @@ int fat_truncate(int fdnum, u_int size) {
 // Overview:
 //  Delete a file or directory.
 int fat_remove(const char *path) {
+	update_clus_size();
 	return fatipc_remove(path);
 
 }
@@ -254,5 +308,11 @@ int fat_remove(const char *path) {
 // Overview:
 //  Synchronize disk with buffer cache
 int fat_sync(void) {
+	update_clus_size();
 	return fatipc_sync();
+}
+
+int fat_create(const char *path, u_int attr, u_int size) {
+	update_clus_size();
+	return fatipc_create(path, attr, size);
 }

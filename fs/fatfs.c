@@ -28,6 +28,10 @@ void write_little_endian(unsigned char **buf, int len, uint32_t val) {
 	(*buf) += len;
 }
 
+int fat_get_clus_size() {
+	return fatDisk.BytsPerClus;
+}
+
 int is_free_cluster(uint32_t clus);
 int get_fat_entry(uint32_t clus, uint32_t *pentry_val);
 int is_bad_cluster(uint32_t clus);
@@ -363,6 +367,7 @@ int search_and_get_fat_entry(uint32_t *pclus) {
 		if (entry_val == 0) {
 			*pclus = clus;
 			try(set_fat_entry(clus, 0xFFFF));
+			// debugf("alloced new clus %u\n", clus);
 			try(write_disk_fat_cluster(clus, zero_buffer));
 			return 0;
 		}
@@ -633,6 +638,7 @@ void fat_write_clus(u_int clus) {
 		user_assert(!write_disk_fat_cluster(0, (unsigned char *)FATROOTVA));
 		return;
 	}
+	// debugf("writing clus %u\n", clus);
 	void *va;
 	// Step 1: detect is this block is mapped, if not, can't write it's data to disk.
 	if (!is_clus_mapped(clus, (uint32_t *)(&va))) {
@@ -1232,11 +1238,22 @@ int fat_file_open(char *path, struct FATDIRENT **file, struct FATDIRENT **dir) {
 // Post-Condition:
 //  On success set *pent to point at the file, if pdir is set, set *pdir to the dir and return 0.
 //  On error return < 0.
-int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir) {
+int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir, uint32_t attr, uint32_t size) {
 	char name[MAXNAMELEN];
 	int r;
 	struct FATDIRENT *dir, *stent, *sdir;
 	struct FATLONGNAME *ldirs;
+	uint32_t clus_num = (size + fatDisk.BytsPerClus - 1) / fatDisk.BytsPerClus;
+	// debugf("creating file clus num = %u\n", clus_num);
+
+	if ((attr & FAT_ATTR_DIRECTORY) == FAT_ATTR_DIRECTORY) {
+		user_assert(size >= 2 * BY2DIRENT);
+		size = 0;
+	}
+
+	if ((attr & FAT_ATTR_VOLUME_ID) != 0) {
+		return -E_FAT_INVAL;
+	}
 
 	if ((r = fat_walk_path(path, &dir, &stent, name, 0)) == 0) {
 		return -E_FAT_FILE_EXISTS;
@@ -1257,10 +1274,14 @@ int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir
 
 	encode_short_name(sdir, name, '1');
 	sdir->DIR_NTRes = 0;
-	sdir->DIR_Attr = 0;
+	sdir->DIR_Attr = attr;
 	sdir->DIR_FstClusHI = 0;
-	sdir->DIR_FstClusLO = 0;
-	sdir->DIR_FileSize = 0;
+	
+	u_int clus;
+	alloc_fat_cluster_entries(&clus, clus_num);
+	sdir->DIR_FstClusLO = clus;
+
+	sdir->DIR_FileSize = size;
 	uint32_t year, month, date, hour, minute, second, timestamp, timeus;
 	timestamp = get_time(&timeus);
 	try(get_all_time(timestamp, &year, &month, &date, &hour, &minute, &second));
@@ -1288,6 +1309,34 @@ int fat_file_create(char *path, struct FATDIRENT **pent, struct FATDIRENT **pdir
 	}
 
 	fat_file_flush(dir, 1);
+
+	if ((r = fat_walk_path(path, &dir, &stent, name, 0)) < 0) {
+		user_assert("create failed");
+	}
+	// debugf("sdir = %u, stent = %u, stent + ldir_cnt = %u\n", sdir, stent, stent + ldir_cnt);
+	user_assert(sdir == stent);
+
+	if ((attr & FAT_ATTR_DIRECTORY) == FAT_ATTR_DIRECTORY) {
+		struct FATDIRENT *childdot, *childdoubledot;
+		if (fat_dir_alloc_files(sdir, &childdot, 1) < 0) {
+			user_assert("can\'t alloc in the new dir");
+		}
+		*childdot = *sdir;
+		childdot->DIR_Name[0] = '.';
+		for (int i = 1; i < 11; i++) {
+			childdot->DIR_Name[i] = ' ';
+		}
+		if (fat_dir_alloc_files(sdir, &childdoubledot, 1) < 0) {
+			user_assert("can\'t alloc in the new dir");
+		}
+		*childdoubledot = *dir;
+		childdoubledot->DIR_Name[0] = '.';
+		childdoubledot->DIR_Name[1] = '.';
+		for (int i = 2; i < 11; i++) {
+			childdoubledot->DIR_Name[i] = ' ';
+		}
+		fat_file_flush(sdir, 1);
+	}
 	return 0;
 }
 
@@ -1383,9 +1432,9 @@ void fat_fs_sync(void) {
 // Overview:
 //  Close a file. flush this file and if dir is set, flush dir.
 void fat_file_close(struct FATDIRENT *ent, struct FATDIRENT *dir) {
-	fat_file_flush(ent, 0);
+	fat_file_flush(ent, 1);
 	if (dir) {
-		fat_file_flush(dir, 0);
+		fat_file_flush(dir, 1);
 	}
 }
 
@@ -1415,7 +1464,8 @@ int fat_file_remove(char *path) {
 	fat_dirty_clus(clus_pos);
 
 	// Step 4: flush the directory.
-	fat_file_flush(dir, 0);
+	fat_file_flush(dir, 1);
+	debugf("removed!\n");
 	return 0;
 }
 

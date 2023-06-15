@@ -1,1 +1,3 @@
-init-envs := main /fs_serv /fs_fatserv
+init-envs := chlg_check /fs_serv /fs_fatserv
+fat-files  += $(wildcard $(test_dir)/rootfat/*)
+fs-files  := $(wildcard $(test_dir)/rootfs/*)

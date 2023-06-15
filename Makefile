@@ -62,9 +62,12 @@ $(mos_elf): $(modules) $(target_dir)
 
 fs-image: $(target_dir) user
 	$(MAKE) --directory=fs image fs-files="$(addprefix ../, $(fs-files))"
-	cp ~/fsfat.img $(user_disk2)
-	#dd if=/dev/zero of=$(user_disk2) bs=33k count=1024
-	#mkfs.vfat -F 16 $(user_disk2)
+	# cp ~/fsfat.img $(user_disk2)
+	dd if=/dev/zero of=$(user_disk2) bs=33k count=1024
+	mkfs.vfat -F 16 $(user_disk2)
+	for fff in $(fat-files); do
+		mcopy -i $(user_disk2) $$fff ::/
+	done
 
 fs: user
 user: lib

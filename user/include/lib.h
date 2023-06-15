@@ -115,8 +115,9 @@ int fatipc_set_size(u_int, u_int);
 int fatipc_close(u_int);
 int fatipc_dirty(u_int, u_int);
 int fatipc_remove(const char *);
-int fatipc_create(const char *);
+int fatipc_create(const char *path, u_int attr, u_int size);
 int fatipc_sync(void);
+int fatipc_getsize(void);
 
 // fd.c
 int close(int fd);
@@ -138,6 +139,7 @@ int sync(void);
 
 // fatfile.c
 int fat_open(const char *path, int mode);
+int fat_create(const char *path, u_int attr, u_int size);
 int fat_read_map(int fd, u_int offset, void **blk);
 int fat_remove(const char *path);
 int fat_truncate(int fd, u_int size);
