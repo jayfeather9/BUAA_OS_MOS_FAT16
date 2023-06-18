@@ -785,6 +785,9 @@ void fat_fs_init(void) {
 	fat_root_dir_ent.DIR_FileSize = 0;
 	fat_root_dir_ent.DIR_FstClusLO = 0;
 	fat_space_init();
+
+	debug_print_fatBPB();
+	debug_print_fatDisk();
 }
 
 // Overview:
