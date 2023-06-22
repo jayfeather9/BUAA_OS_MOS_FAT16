@@ -8,7 +8,7 @@
 *.swp
 *~
 tags
-
+README.md
 target
 include/generated
 
