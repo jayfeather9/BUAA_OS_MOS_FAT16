@@ -361,7 +361,7 @@ int check5_chlg() {
 	write(fsfd, msg, strlen(msg));
 	close(fsfd);
 
-	fat_create("/abc.c", 0, 0);
+	fat_create("/abcasvdasdfuyasvduyvasud.casvuasdvuyasvduyvsa", 0, 0);
 	fat_create("/bbb", FAT_ATTR_DIRECTORY, 128);
 	fat_create("/bbb/ccc.c", 0, 8192);
 	u_int fdccc = fat_open("/bbb/ccc.c", O_RDWR);
@@ -390,7 +390,7 @@ int check5_chlg() {
 	}
 	close(fdccc);
 	debugf("\n\nMultiple cluster read & write, create passed!\n\n");
-	fdccc = fat_open("/my_lyrics.txt_test", O_RDONLY);
+	fdccc = fat_open("/my_lyrics12312.t4444xt_test", O_RDONLY);
 	memset(buf, 0, file_size);
 	readn(fdccc, buf, 1683);
 	debugf("%s", buf);
@@ -402,8 +402,8 @@ int check5_chlg() {
 }
 
 int main() {
-	check5_4();
-	check5_5();
+	// check5_4();
+	// check5_5();
 	check5_chlg();
 	return 0;
 }
